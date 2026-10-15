@@ -106,14 +106,23 @@ class OnlineFetcherDialog(QDialog):
         layout.addLayout(search_row)
 
         # Optional TMDb key row (hidden by default unless TMDb is selected)
+        tmdb_box_layout = QVBoxLayout()
+        tmdb_box_layout.setContentsMargins(0, 0, 0, 0)
+        tmdb_box_layout.setSpacing(2)
+
         self.tmdb_row = QHBoxLayout()
         self.tmdb_row.addWidget(QLabel("TMDb API Key:"))
         self.txt_tmdb_key = QLineEdit(self.settings.value("tmdb_api_key", ""))
-        self.txt_tmdb_key.setPlaceholderText("Enter your TMDb v3 API Key...")
+        self.txt_tmdb_key.setPlaceholderText("Enter your TMDb v3 API Key (free for personal use)...")
         self.txt_tmdb_key.textChanged.connect(lambda t: self.settings.setValue("tmdb_api_key", t))
         self.tmdb_row.addWidget(self.txt_tmdb_key, 1)
+        tmdb_box_layout.addLayout(self.tmdb_row)
+
+        lbl_tmdb_note = QLabel("<small style='color: #888;'>This product uses the TMDB API but is not endorsed or certified by TMDB.</small>")
+        tmdb_box_layout.addWidget(lbl_tmdb_note)
+
         self.tmdb_container = QFrame()
-        self.tmdb_container.setLayout(self.tmdb_row)
+        self.tmdb_container.setLayout(tmdb_box_layout)
         self.tmdb_container.setVisible("TMDb" in self.cmb_engine.currentText())
         layout.addWidget(self.tmdb_container)
 

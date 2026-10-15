@@ -686,4 +686,7 @@ class MainWindow(QMainWindow):
             "<h3>FileTagger</h3>"
             "<p>A powerful audio and video metadata tagger with interactive video thumbnail extraction.</p>"
             "<p><b>Supported formats:</b> MP3, FLAC, MP4, M4A, MKV, OGG, Opus, WAV, and more.</p>"
+            "<hr>"
+            "<p style='color: gray; font-size: 11px;'>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>"
         )
+

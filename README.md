@@ -65,3 +65,41 @@ Double click [`run_app.bat`](file:///p:/code%20testing/FileTagger/run_app.bat) t
 | `Ctrl+R` | Open Batch Rename dialog |
 | `Del` | Remove selected items from list |
 | `Ctrl+Q` | Exit |
+
+## 🎬 TMDb API Setup & Attribution
+
+FileTagger integrates with **The Movie Database (TMDb)** to fetch high-resolution movie and TV show posters, release metadata, directors, genres, and plot synopses.
+
+### Attribution
+> **"This product uses the TMDB API but is not endorsed or certified by TMDB."**
+
+Please consult [TMDb Brand Guidelines & Attribution](tmdb_attribution_brand_guidelines.md) for official branding guidelines, approved logo usage, and brand colors.
+
+---
+
+### How to Get a Free TMDb API Key
+
+TMDb provides free API keys for personal and non-commercial use:
+
+1. **Create an Account**: Visit [themoviedb.org](https://www.themoviedb.org/) and register. Confirm your email address.
+2. **Request an API Key**:
+   - Open **Account Settings → API** ([themoviedb.org/settings/api](https://www.themoviedb.org/settings/api)).
+   - Click **Create** / **Request an API Key** and select **Developer** (Personal / Non-Commercial).
+   - Accept the API Terms of Use and fill out the brief form:
+     - **Application Name**: `FileTagger`
+     - **Application URL**: `https://github.com/Nuggs2264/FileTagger` (or `n/a`)
+     - **Type of Use**: `Personal / Desktop Application`
+     - **Summary of Use**: Audio/video metadata tagging and poster art fetching.
+3. **Copy Your Key**:
+   - Copy the **API Key (v3 auth)** (a 32-character alphanumeric string).
+4. **Add to FileTagger**:
+   - In FileTagger, press `Ctrl+F` (or click **🌐 Fetch Online Info**).
+   - Change the search engine dropdown to **`🌐 TMDb (API Key)`**.
+   - Paste your key into the **TMDb API Key** box. FileTagger will automatically remember your key for all future sessions.
+
+For additional details on rate limits, endpoints, and commercial licensing terms, see the [TMDb API Usage Guide](TmdbApiUsageAndHowToGetIt.md).
+
+## License
+
+This project is licensed under the [GNU General Public License v3.0](LICENSE).
+
