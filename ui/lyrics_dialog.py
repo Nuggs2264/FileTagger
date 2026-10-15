@@ -1,3 +1,4 @@
+import os
 import threading
 from typing import Optional
 from PySide6.QtCore import Qt, QObject, Signal
@@ -188,9 +189,9 @@ class LyricsDialog(QDialog):
             self.item.mark_dirty()
 
         # 2. Save .lrc file alongside audio
-        if self.chk_save_lrc.isChecked() and synced_text:
+        if self.chk_save_lrc.isChecked() and lyrics_to_save:
             try:
-                lrc_path = save_lrc_file(self.item.file_path, synced_text)
+                lrc_path = save_lrc_file(self.item.file_path, lyrics_to_save)
                 QMessageBox.information(
                     self,
                     "Saved",

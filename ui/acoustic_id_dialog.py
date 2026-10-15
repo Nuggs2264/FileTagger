@@ -1,3 +1,4 @@
+import os
 import threading
 from typing import List, Optional
 from PySide6.QtCore import Qt, QObject, Signal
