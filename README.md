@@ -21,6 +21,14 @@ An advanced audio and video metadata tagger and thumbnail editor inspired by dBp
   - Live side-by-side preview with official high-res cinema poster, release year, director, cast, genres, and plot synopsis.
   - 1-click batch application with checkboxes to selectively apply artwork, title, year, director, genres, and plot summary.
   - Automatically normalizes downloaded poster images into 100% compliant baseline JPEG before embedding.
+- **Online Music Album Art & Metadata Fetcher**:
+  - Search **Apple Music / iTunes** (pristine up to 1400×1400 artwork), **Deezer** (1000×1000 artwork), **MusicBrainz & Cover Art Archive (CAA)**, and **Discogs**.
+  - High-resolution album cover preview, track counts, release dates, and genres.
+  - 1-click batch application to all selected tracks.
+- **Music & Audio Superpowers**:
+  - **🎵 Acoustic Fingerprinting (Shazam-style Audio ID)**: Analyzes audio waveforms via portable **Chromaprint / AcoustID** with automatic **MusicBrainz** metadata fallback to identify untagged tracks (`Track01.mp3`).
+  - **🎤 Synchronized Lyrics Downloader**: Automatically downloads timestamped karaoke lyrics from **LRCLIB**. Embeds into tags (`USLT`, `©lyr`, `LYRICS`) and exports `.lrc` sidecar files.
+  - **🔊 ReplayGain / Loudness Normalization Scanner**: Scans audio tracks using **EBU R128** (`libebur128` via portable FFmpeg) to write `REPLAYGAIN_TRACK_GAIN`, `REPLAYGAIN_TRACK_PEAK`, `REPLAYGAIN_ALBUM_GAIN`, and `REPLAYGAIN_ALBUM_PEAK`.
 - **Batch Tools**:
   - **Batch Rename**: Rename files based on tags (`{artist} - {title}`, `{track_number} - {title}`, etc.) with real-time preview and safe character sanitization.
   - **Auto-Number Tracks**: Sequentially number tracks (1..N) across selections.
@@ -49,7 +57,11 @@ Double click [`run_app.bat`](file:///p:/code%20testing/FileTagger/run_app.bat) t
 | `Ctrl+Shift+O` | Add Folder... |
 | `Ctrl+S` | Save Selected files |
 | `Ctrl+Shift+S` | Save All modified files |
-| `Ctrl+F` | Fetch Movie/TV Info & Poster Online |
+| `Ctrl+Shift+F` | Fetch Album Art & Music Info Online (iTunes / Deezer / Discogs) |
+| `Ctrl+F` | Fetch Movie/TV Info & Poster Online (TMDb / IMDb) |
+| `Ctrl+I` | Identify Track (Acoustic Fingerprint / MusicBrainz) |
+| `Ctrl+L` | Download Lyrics (LRCLIB Synchronized / Plain) |
+| `Ctrl+G` | Scan ReplayGain Loudness (EBU R128) |
 | `Ctrl+R` | Open Batch Rename dialog |
 | `Del` | Remove selected items from list |
 | `Ctrl+Q` | Exit |

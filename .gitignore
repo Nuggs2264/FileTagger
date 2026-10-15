@@ -8,12 +8,20 @@ desktop.ini
 config.json
 
 # Dependencies & Virtual Environments
-node_modules/
+.venv/
 venv/
+env/
 __pycache__/
 *.pyc
 
-# Build Outputs & Logs
+# Build Outputs, Test Files & Logs
 dist/
 build/
 *.log
+test_sample*
+test_audio*
+test_video*
+
+# IDE & Editor Configs
+.vscode/
+.idea/
