@@ -1,0 +1,19 @@
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment Variables & Secrets
+.env
+config.json
+
+# Dependencies & Virtual Environments
+node_modules/
+venv/
+__pycache__/
+*.pyc
+
+# Build Outputs & Logs
+dist/
+build/
+*.log

@@ -1,0 +1,1 @@
+# FileTagger core module

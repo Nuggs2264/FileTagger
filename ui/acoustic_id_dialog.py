@@ -1,0 +1,202 @@
+import threading
+from typing import List, Optional
+from PySide6.QtCore import Qt, QObject, Signal
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
+    QProgressBar, QMessageBox, QFrame, QGroupBox
+)
+
+from core.media_item import MediaItem
+from core.audio_fingerprint import identify_audio_file, AudioFingerprintMatch
+
+class AcousticWorkerSignals(QObject):
+    finished_matches = Signal(list)
+    error_occurred = Signal(str)
+
+class AcousticIdDialog(QDialog):
+    def __init__(self, item: MediaItem, parent=None):
+        super().__init__(parent)
+        self.item = item
+        self.matches: List[AudioFingerprintMatch] = []
+        self.selected_match: Optional[AudioFingerprintMatch] = None
+        self.applied = False
+
+        self.setWindowTitle("Acoustic Fingerprinting & Audio ID (AcoustID / MusicBrainz)")
+        self.resize(750, 480)
+        self._init_ui()
+        self._start_scan()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        # Header info
+        header = QLabel(f"<b>File:</b> {self.item.file_name}")
+        header.setStyleSheet("color: #e2e8f0; font-size: 10pt;")
+        layout.addWidget(header)
+
+        # Progress / Status
+        self.status_label = QLabel("Computing Chromaprint audio waveform fingerprint...")
+        self.status_label.setStyleSheet("color: #38bdf8; font-size: 9pt;")
+        layout.addWidget(self.status_label)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)  # indeterminate
+        layout.addWidget(self.progress_bar)
+
+        # Results Table
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels([
+            "Confidence", "Title", "Artist", "Album", "Year", "Track", "MBID"
+        ])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        layout.addWidget(self.table, 1)
+
+        # Apply Options Group
+        options_group = QGroupBox("Apply Fields to File")
+        options_layout = QHBoxLayout(options_group)
+        options_layout.setSpacing(14)
+
+        self.chk_title = QCheckBox("Title")
+        self.chk_title.setChecked(True)
+        options_layout.addWidget(self.chk_title)
+
+        self.chk_artist = QCheckBox("Artist")
+        self.chk_artist.setChecked(True)
+        options_layout.addWidget(self.chk_artist)
+
+        self.chk_album = QCheckBox("Album")
+        self.chk_album.setChecked(True)
+        options_layout.addWidget(self.chk_album)
+
+        self.chk_year = QCheckBox("Year")
+        self.chk_year.setChecked(True)
+        options_layout.addWidget(self.chk_year)
+
+        self.chk_track = QCheckBox("Track #")
+        self.chk_track.setChecked(True)
+        options_layout.addWidget(self.chk_track)
+
+        self.chk_mbid = QCheckBox("MusicBrainz ID")
+        self.chk_mbid.setChecked(True)
+        options_layout.addWidget(self.chk_mbid)
+
+        options_layout.addStretch()
+        layout.addWidget(options_group)
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(self.btn_cancel)
+
+        self.btn_apply = QPushButton("Apply to Track")
+        self.btn_apply.setStyleSheet("font-weight: bold; padding: 7px 20px;")
+        self.btn_apply.setEnabled(False)
+        self.btn_apply.clicked.connect(self._apply_selected)
+        btn_row.addWidget(self.btn_apply)
+
+        layout.addLayout(btn_row)
+
+    def _start_scan(self):
+        self.signals = AcousticWorkerSignals()
+        self.signals.finished_matches.connect(self._on_matches_ready)
+        self.signals.error_occurred.connect(self._on_scan_error)
+
+        path = self.item.file_path
+        def _scan_target():
+            try:
+                res = identify_audio_file(path)
+                try:
+                    self.signals.finished_matches.emit(res)
+                except RuntimeError:
+                    pass
+            except Exception as e:
+                try:
+                    self.signals.error_occurred.emit(str(e))
+                except RuntimeError:
+                    pass
+
+        t = threading.Thread(target=_scan_target, daemon=True)
+        t.start()
+
+    def _on_matches_ready(self, matches: List[AudioFingerprintMatch]):
+        self.progress_bar.setVisible(False)
+        self.matches = matches
+
+        if not matches:
+            self.status_label.setText("No matching tracks found in AcoustID / MusicBrainz database.")
+            self.status_label.setStyleSheet("color: #f87171; font-size: 9pt;")
+            return
+
+        self.status_label.setText(f"Found {len(matches)} match(es) in MusicBrainz database:")
+        self.status_label.setStyleSheet("color: #4ade80; font-size: 9pt;")
+
+        self.table.setRowCount(len(matches))
+        for row, m in enumerate(matches):
+            conf_str = f"{int(m.score * 100)}%"
+            item_conf = QTableWidgetItem(conf_str)
+            item_conf.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if m.score >= 0.8:
+                item_conf.setForeground(Qt.GlobalColor.green)
+            else:
+                item_conf.setForeground(Qt.GlobalColor.yellow)
+
+            self.table.setItem(row, 0, item_conf)
+            self.table.setItem(row, 1, QTableWidgetItem(m.title))
+            self.table.setItem(row, 2, QTableWidgetItem(m.artist))
+            self.table.setItem(row, 3, QTableWidgetItem(m.album))
+            self.table.setItem(row, 4, QTableWidgetItem(m.year))
+            self.table.setItem(row, 5, QTableWidgetItem(m.track_number))
+            self.table.setItem(row, 6, QTableWidgetItem(m.recording_id))
+
+        self.table.resizeColumnsToContents()
+        self.table.selectRow(0)
+
+    def _on_scan_error(self, err_msg: str):
+        self.progress_bar.setVisible(False)
+        self.status_label.setText(f"Audio identification error: {err_msg}")
+        self.status_label.setStyleSheet("color: #ef4444; font-size: 9pt;")
+        QMessageBox.warning(self, "Acoustic ID Error", f"Failed to identify audio:\n{err_msg}")
+
+    def _on_selection_changed(self):
+        row = self.table.currentRow()
+        if 0 <= row < len(self.matches):
+            self.selected_match = self.matches[row]
+            self.btn_apply.setEnabled(True)
+        else:
+            self.selected_match = None
+            self.btn_apply.setEnabled(False)
+
+    def _apply_selected(self):
+        if not self.selected_match:
+            return
+
+        m = self.selected_match
+        if self.chk_title.isChecked() and m.title:
+            self.item.tags["title"] = m.title
+        if self.chk_artist.isChecked() and m.artist:
+            self.item.tags["artist"] = m.artist
+        if self.chk_album.isChecked() and m.album:
+            self.item.tags["album"] = m.album
+        if self.chk_year.isChecked() and m.year:
+            self.item.tags["year"] = m.year
+        if self.chk_track.isChecked() and m.track_number:
+            self.item.tags["track_number"] = m.track_number
+        if self.chk_mbid.isChecked() and m.recording_id:
+            self.item.extra_tags["MUSICBRAINZ_TRACKID"] = m.recording_id
+
+        if m.fingerprint:
+            self.item.extra_tags["ACOUSTID_FINGERPRINT"] = m.fingerprint
+
+        self.item.mark_dirty()
+        self.applied = True
+        self.accept()
