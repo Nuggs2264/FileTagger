@@ -4,11 +4,13 @@ from PySide6.QtCore import Qt, QObject, Signal
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
-    QProgressBar, QMessageBox, QFrame, QGroupBox
+    QProgressBar, QMessageBox, QFrame, QGroupBox, QLineEdit
 )
 
 from core.media_item import MediaItem
-from core.audio_fingerprint import identify_audio_file, AudioFingerprintMatch
+from core.audio_fingerprint import (
+    identify_audio_file, search_musicbrainz, AudioFingerprintMatch
+)
 
 class AcousticWorkerSignals(QObject):
     finished_matches = Signal(list)
@@ -36,6 +38,30 @@ class AcousticIdDialog(QDialog):
         header = QLabel(f"<b>File:</b> {self.item.file_name}")
         header.setStyleSheet("color: #e2e8f0; font-size: 10pt;")
         layout.addWidget(header)
+
+        # Search Query Bar (for manual refinement or fallback)
+        search_row = QHBoxLayout()
+        search_row.setSpacing(8)
+
+        default_query = ""
+        if self.item.tags.get("artist") and self.item.tags.get("title"):
+            default_query = f"{self.item.tags['artist']} - {self.item.tags['title']}"
+        elif self.item.tags.get("title"):
+            default_query = self.item.tags["title"]
+        else:
+            default_query = os.path.splitext(self.item.file_name)[0]
+
+        self.txt_search = QLineEdit(default_query)
+        self.txt_search.setPlaceholderText("Search MusicBrainz (e.g. Artist - Title)...")
+        self.txt_search.returnPressed.connect(self._on_manual_search)
+        search_row.addWidget(self.txt_search, 1)
+
+        self.btn_search = QPushButton("🔍 Search MusicBrainz")
+        self.btn_search.setStyleSheet("font-weight: bold; padding: 5px 14px;")
+        self.btn_search.clicked.connect(self._on_manual_search)
+        search_row.addWidget(self.btn_search)
+
+        layout.addLayout(search_row)
 
         # Progress / Status
         self.status_label = QLabel("Computing Chromaprint audio waveform fingerprint...")
@@ -107,14 +133,20 @@ class AcousticIdDialog(QDialog):
         layout.addLayout(btn_row)
 
     def _start_scan(self):
+        self.progress_bar.setVisible(True)
+        self.status_label.setText("Computing Chromaprint audio fingerprint & querying MusicBrainz...")
+        self.status_label.setStyleSheet("color: #38bdf8; font-size: 9pt;")
+        self.btn_search.setEnabled(False)
+
         self.signals = AcousticWorkerSignals()
         self.signals.finished_matches.connect(self._on_matches_ready)
         self.signals.error_occurred.connect(self._on_scan_error)
 
         path = self.item.file_path
+        fallback_q = self.txt_search.text().strip()
         def _scan_target():
             try:
-                res = identify_audio_file(path)
+                res = identify_audio_file(path, fallback_query=fallback_q)
                 try:
                     self.signals.finished_matches.emit(res)
                 except RuntimeError:
@@ -128,13 +160,45 @@ class AcousticIdDialog(QDialog):
         t = threading.Thread(target=_scan_target, daemon=True)
         t.start()
 
+    def _on_manual_search(self):
+        query = self.txt_search.text().strip()
+        if not query:
+            return
+
+        self.progress_bar.setVisible(True)
+        self.status_label.setText(f"Searching MusicBrainz for '{query}'...")
+        self.status_label.setStyleSheet("color: #38bdf8; font-size: 9pt;")
+        self.btn_search.setEnabled(False)
+
+        self.signals = AcousticWorkerSignals()
+        self.signals.finished_matches.connect(self._on_matches_ready)
+        self.signals.error_occurred.connect(self._on_scan_error)
+
+        def _mb_search():
+            try:
+                res = search_musicbrainz(query)
+                try:
+                    self.signals.finished_matches.emit(res)
+                except RuntimeError:
+                    pass
+            except Exception as e:
+                try:
+                    self.signals.error_occurred.emit(str(e))
+                except RuntimeError:
+                    pass
+
+        t = threading.Thread(target=_mb_search, daemon=True)
+        t.start()
+
     def _on_matches_ready(self, matches: List[AudioFingerprintMatch]):
         self.progress_bar.setVisible(False)
+        self.btn_search.setEnabled(True)
         self.matches = matches
 
         if not matches:
-            self.status_label.setText("No matching tracks found in AcoustID / MusicBrainz database.")
+            self.status_label.setText("No matching tracks found. Try searching with a different artist/title query above.")
             self.status_label.setStyleSheet("color: #f87171; font-size: 9pt;")
+            self.table.setRowCount(0)
             return
 
         self.status_label.setText(f"Found {len(matches)} match(es) in MusicBrainz database:")

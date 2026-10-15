@@ -21,6 +21,7 @@ from ui.online_fetcher_dialog import OnlineFetcherDialog
 from ui.acoustic_id_dialog import AcousticIdDialog
 from ui.lyrics_dialog import LyricsDialog
 from ui.replay_gain_dialog import ReplayGainDialog
+from ui.music_fetcher_dialog import MusicFetcherDialog
 
 class FileSearchFilterProxyModel(QSortFilterProxyModel):
     """Filters table rows across multiple columns (Filename, Title, Artist, Album)."""
@@ -199,6 +200,11 @@ class MainWindow(QMainWindow):
         # --- Audio Superpowers Menu ---
         audio_menu = menu_bar.addMenu("&Audio")
 
+        self.act_music_fetch = QAction("🎨 Fetch Album Art & Tags (iTunes / Deezer / Discogs)...", self)
+        self.act_music_fetch.setShortcut(QKeySequence("Ctrl+Shift+F"))
+        self.act_music_fetch.triggered.connect(self.open_music_fetcher)
+        audio_menu.addAction(self.act_music_fetch)
+
         self.act_acoustic_id = QAction("🎵 Identify Track (Acoustic ID)...", self)
         self.act_acoustic_id.setShortcut(QKeySequence("Ctrl+I"))
         self.act_acoustic_id.triggered.connect(self.open_acoustic_id)
@@ -231,6 +237,7 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.act_save_sel)
         toolbar.addAction(act_remove_sel)
         toolbar.addSeparator()
+        toolbar.addAction(self.act_music_fetch)
         toolbar.addAction(self.act_acoustic_id)
         toolbar.addAction(self.act_lyrics)
         toolbar.addAction(self.act_replay_gain)
@@ -507,7 +514,12 @@ class MainWindow(QMainWindow):
     def open_online_fetcher(self):
         items = self._get_selected_items()
         if not items:
-            QMessageBox.information(self, "Fetch Online", "Please select a file to search for online movie/TV metadata.")
+            QMessageBox.information(self, "Fetch Online", "Please select a file to search for online metadata.")
+            return
+
+        # If audio track is selected, automatically route to the Music Album Art Fetcher
+        if items[0].is_audio:
+            self.open_music_fetcher()
             return
 
         first_item = items[0]
@@ -540,12 +552,58 @@ class MainWindow(QMainWindow):
             self._on_selection_changed()
             self.status_bar.showMessage(f"Applied online metadata for '{res.title}' ({res.year}). Press Ctrl+S to save.", 5000)
 
+    def open_music_fetcher(self):
+        items = self._get_selected_items()
+        if not items:
+            QMessageBox.information(self, "Fetch Album Art", "Please select a music file to search for album art.")
+            return
+
+        first_item = items[0]
+        artist = first_item.tags.get("artist", "").strip()
+        album = first_item.tags.get("album", "").strip()
+        title = first_item.tags.get("title", "").strip()
+
+        if artist and album:
+            default_query = f"{artist} {album}"
+        elif artist and title:
+            default_query = f"{artist} {title}"
+        elif album:
+            default_query = album
+        elif title:
+            default_query = title
+        else:
+            default_query = first_item.file_name
+
+        dlg = MusicFetcherDialog(default_query, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_result:
+            res = dlg.selected_result
+            norm_cover = None
+            if dlg.chk_cover.isChecked() and dlg.downloaded_cover_bytes:
+                norm_cover, _ = normalize_cover_image(dlg.downloaded_cover_bytes)
+
+            for it in items:
+                if norm_cover:
+                    it.set_cover(norm_cover, "image/jpeg")
+                if dlg.chk_album.isChecked() and res.album:
+                    it.tags["album"] = res.album
+                if dlg.chk_artist.isChecked() and res.artist:
+                    it.tags["artist"] = res.artist
+                if dlg.chk_year.isChecked() and res.year:
+                    it.tags["year"] = res.year
+                if dlg.chk_genre.isChecked() and res.genre:
+                    it.tags["genre"] = res.genre
+
+            self.table_model.notify_all_changed()
+            self._on_selection_changed()
+            self.status_bar.showMessage(f"Applied album art & metadata for '{res.album}' by {res.artist}. Press Ctrl+S to save.", 5000)
+
     def _show_table_context_menu(self, pos):
         items = self._get_selected_items()
         if not items:
             return
 
         menu = QMenu(self)
+        menu.addAction(self.act_music_fetch)
         menu.addAction(self.act_acoustic_id)
         menu.addAction(self.act_lyrics)
         menu.addAction(self.act_replay_gain)

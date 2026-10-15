@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import json
 import shutil
@@ -212,12 +213,137 @@ def lookup_acoustid(
     matches.sort(key=lambda m: m.score, reverse=True)
     return matches
 
+def search_musicbrainz(query: str, limit: int = 10) -> List[AudioFingerprintMatch]:
+    """
+    Searches MusicBrainz recordings by text query (artist / title / filename).
+    Used as an automatic fallback when AcoustID has no acoustic fingerprint on file.
+    """
+    import requests
+    # Clean up search query
+    clean_q = os.path.splitext(query)[0]
+    clean_q = re.sub(r"^\d+\s*[-.]\s*", "", clean_q)
+    clean_q = re.sub(r"[\(\[](?:flac|mp3|official video|audio|remastered|deluxe)[\)\]]", "", clean_q, flags=re.IGNORECASE)
+    clean_q = clean_q.replace('"', '').replace("'", "").strip()
+
+    url = "https://musicbrainz.org/ws/2/recording"
+    params = {
+        "query": clean_q,
+        "fmt": "json",
+        "limit": limit
+    }
+    headers = {
+        "User-Agent": "FileTagger/1.0 (https://github.com/desktop-tagger/filetagger)"
+    }
+
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=6)
+        if r.status_code == 200:
+            data = r.json()
+        else:
+            data = {}
+    except Exception:
+        data = {}
+
+    results: List[AudioFingerprintMatch] = []
+    for rec in data.get("recordings", []):
+        mb_score = float(rec.get("score", 100)) / 100.0
+        rec_id = rec.get("id", "")
+        title = rec.get("title", "")
+
+        artists = rec.get("artist-credit", [])
+        artist_name = ""
+        if artists:
+            artist_name = ", ".join(a.get("name", "") for a in artists if isinstance(a, dict) and a.get("name"))
+
+        album = ""
+        year = ""
+        track_number = ""
+        genre = ""
+
+        releases = rec.get("releases", [])
+        if releases:
+            rel = releases[0]
+            album = rel.get("title", "")
+            date_val = rel.get("date", "")
+            if date_val and len(date_val) >= 4:
+                year = date_val[:4]
+            mediums = rel.get("media", [])
+            if mediums:
+                track_offset = mediums[0].get("track-offset", 0)
+                if track_offset:
+                    track_number = str(track_offset + 1)
+        elif "first-release-date" in rec:
+            year = rec["first-release-date"][:4]
+
+        tags = rec.get("tags", [])
+        if tags and not genre:
+            genre = tags[0].get("name", "").capitalize()
+
+        results.append(AudioFingerprintMatch(
+            score=round(mb_score, 2),
+            title=title,
+            artist=artist_name,
+            album=album,
+            year=year,
+            track_number=track_number,
+            genre=genre,
+            recording_id=rec_id
+        ))
+
+    if not results:
+        # Fallback to iTunes track search
+        try:
+            itunes_url = "https://itunes.apple.com/search"
+            itunes_params = {"term": clean_q, "entity": "song", "limit": limit}
+            r_it = requests.get(itunes_url, params=itunes_params, timeout=6)
+            if r_it.status_code == 200:
+                for item in r_it.json().get("results", []):
+                    rel_date = item.get("releaseDate", "")
+                    year = rel_date[:4] if rel_date and len(rel_date) >= 4 else ""
+                    results.append(AudioFingerprintMatch(
+                        score=0.92,
+                        title=item.get("trackName", ""),
+                        artist=item.get("artistName", ""),
+                        album=item.get("collectionName", ""),
+                        year=year,
+                        track_number=str(item.get("trackNumber", "")),
+                        genre=item.get("primaryGenreName", ""),
+                        recording_id=str(item.get("trackId", ""))
+                    ))
+        except Exception:
+            pass
+
+    return results
+
 def identify_audio_file(
     file_path: str,
+    fallback_query: str = "",
     client_key: str = ACOUSTID_DEFAULT_CLIENT
 ) -> List[AudioFingerprintMatch]:
     """
     High-level function: Fingerprints local audio file and identifies it via AcoustID.
+    If AcoustID returns 0 matches, automatically falls back to MusicBrainz metadata search!
     """
-    duration, fingerprint = compute_chromaprint(file_path)
-    return lookup_acoustid(duration, fingerprint, client_key=client_key)
+    matches: List[AudioFingerprintMatch] = []
+    fingerprint = ""
+
+    try:
+        duration, fingerprint = compute_chromaprint(file_path)
+        matches = lookup_acoustid(duration, fingerprint, client_key=client_key)
+    except Exception:
+        pass
+
+    # If acoustic fingerprint found matches, return them
+    if matches:
+        return matches
+
+    # Fallback to MusicBrainz search
+    query = fallback_query or os.path.splitext(os.path.basename(file_path))[0]
+    if query:
+        mb_matches = search_musicbrainz(query)
+        if fingerprint:
+            for m in mb_matches:
+                m.fingerprint = fingerprint
+        return mb_matches
+
+    return []
