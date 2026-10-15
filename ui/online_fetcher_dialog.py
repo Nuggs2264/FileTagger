@@ -40,15 +40,35 @@ class SearchWorker(QThread):
 
 class ImageDownloadWorker(QThread):
     image_ready = Signal(bytes)
+    failed = Signal(str)
 
     def __init__(self, url: str):
         super().__init__()
         self.url = url
 
     def run(self):
-        data = download_image_bytes(self.url)
-        if data:
-            self.image_ready.emit(data)
+        try:
+            data = download_image_bytes(self.url)
+            if data:
+                self.image_ready.emit(data)
+            else:
+                self.failed.emit("Empty image data received.")
+        except Exception as e:
+            self.failed.emit(str(e))
+
+class DetailWorker(QThread):
+    details_ready = Signal(dict)
+
+    def __init__(self, title: str):
+        super().__init__()
+        self.title = title
+
+    def run(self):
+        try:
+            extra = fetch_wikipedia_plot_and_director(self.title)
+            self.details_ready.emit(extra)
+        except Exception:
+            self.details_ready.emit({})
 
 class OnlineFetcherDialog(QDialog):
     def __init__(self, initial_query: str = "", parent=None):
@@ -61,6 +81,7 @@ class OnlineFetcherDialog(QDialog):
 
         self.search_worker: Optional[SearchWorker] = None
         self.image_worker: Optional[ImageDownloadWorker] = None
+        self.detail_worker: Optional[DetailWorker] = None
 
         self.setWindowTitle("Online Movie & TV Poster & Metadata Fetcher")
         self.resize(880, 620)
@@ -108,14 +129,26 @@ class OnlineFetcherDialog(QDialog):
         # Optional TMDb key row (hidden by default unless TMDb is selected)
         tmdb_box_layout = QVBoxLayout()
         tmdb_box_layout.setContentsMargins(0, 0, 0, 0)
-        tmdb_box_layout.setSpacing(2)
+        tmdb_box_layout.setSpacing(3)
 
         self.tmdb_row = QHBoxLayout()
         self.tmdb_row.addWidget(QLabel("TMDb API Key:"))
-        self.txt_tmdb_key = QLineEdit(self.settings.value("tmdb_api_key", ""))
-        self.txt_tmdb_key.setPlaceholderText("Enter your TMDb v3 API Key (free for personal use)...")
-        self.txt_tmdb_key.textChanged.connect(lambda t: self.settings.setValue("tmdb_api_key", t))
+        saved_key = str(self.settings.value("tmdb_api_key", "")).strip()
+        self.txt_tmdb_key = QLineEdit(saved_key)
+        self.txt_tmdb_key.setPlaceholderText("Paste your 32-character TMDb v3 API Key...")
+        self.txt_tmdb_key.returnPressed.connect(self._on_tmdb_key_enter)
+        self.txt_tmdb_key.textChanged.connect(self._on_tmdb_key_changed)
         self.tmdb_row.addWidget(self.txt_tmdb_key, 1)
+
+        self.btn_save_key = QPushButton("💾 Save Key")
+        self.btn_save_key.setStyleSheet("padding: 4px 14px; font-weight: bold;")
+        self.btn_save_key.clicked.connect(self._save_tmdb_key)
+        self.tmdb_row.addWidget(self.btn_save_key)
+
+        self.lbl_key_status = QLabel("✅ Saved" if saved_key else "")
+        self.lbl_key_status.setStyleSheet("color: #4ade80; font-weight: bold; margin-left: 4px;")
+        self.tmdb_row.addWidget(self.lbl_key_status)
+
         tmdb_box_layout.addLayout(self.tmdb_row)
 
         lbl_tmdb_note = QLabel("<small style='color: #888;'>This product uses the TMDB API but is not endorsed or certified by TMDB.</small>")
@@ -247,6 +280,31 @@ class OnlineFetcherDialog(QDialog):
         self.settings.setValue("search_engine", text)
         self.tmdb_container.setVisible("TMDb" in text)
 
+    def _on_tmdb_key_changed(self, text: str):
+        key = text.strip()
+        self.settings.setValue("tmdb_api_key", key)
+        if key:
+            self.lbl_key_status.setText("✅ Saved")
+            self.lbl_key_status.setStyleSheet("color: #4ade80; font-weight: bold; margin-left: 4px;")
+        else:
+            self.lbl_key_status.setText("")
+
+    def _save_tmdb_key(self):
+        key = self.txt_tmdb_key.text().strip()
+        self.settings.setValue("tmdb_api_key", key)
+        if key:
+            self.lbl_key_status.setText("✅ Saved!")
+            self.lbl_key_status.setStyleSheet("color: #4ade80; font-weight: bold; margin-left: 4px;")
+            QMessageBox.information(self, "TMDb Key Saved", "Your TMDb API key has been saved successfully.")
+        else:
+            self.lbl_key_status.setText("⚠️ Cleared")
+            self.lbl_key_status.setStyleSheet("color: #facc15; margin-left: 4px;")
+
+    def _on_tmdb_key_enter(self):
+        self._save_tmdb_key()
+        if self.txt_query.text().strip():
+            self._start_search()
+
     def _start_search(self):
         query = self.txt_query.text().strip()
         if not query:
@@ -326,34 +384,30 @@ class OnlineFetcherDialog(QDialog):
             lines.append(f"<br><b>Overview:</b> {res.overview}")
         self.txt_details.setHtml("<br>".join(lines))
 
-        # If overview or director is missing and it's IMDb, fetch from Wikipedia summary
-        if not res.overview and res.title:
-            extra = fetch_wikipedia_plot_and_director(res.title)
-            if extra.get("overview"):
-                res.overview = extra["overview"]
-            if extra.get("director") and not res.director:
-                res.director = extra["director"]
-            # Re-render details with fetched overview
-            if res.overview or res.director:
-                lines = [f"<b>{res.title}</b> ({res.year}) - <i>{res.media_type}</i>"]
-                if res.genres:
-                    lines.append(f"<b>Genres:</b> {', '.join(res.genres)}")
-                if res.director:
-                    lines.append(f"<b>Director:</b> {res.director}")
-                if res.cast:
-                    lines.append(f"<b>Cast:</b> {res.cast}")
-                if res.overview:
-                    lines.append(f"<br><b>Overview:</b> {res.overview}")
-                self.txt_details.setHtml("<br>".join(lines))
+        # Asynchronously fetch Wikipedia summary if overview is missing (e.g. IMDb results)
+        if not res.overview and res.title and res.source == "IMDb":
+            if self.detail_worker and self.detail_worker.isRunning():
+                self.detail_worker.terminate()
+                self.detail_worker.wait(200)
+            self.detail_worker = DetailWorker(res.title)
+            self.detail_worker.details_ready.connect(lambda extra, r=res: self._on_wiki_details_ready(r, extra))
+            self.detail_worker.start()
 
         # Download and display poster preview
         self.downloaded_poster_bytes = None
+        if self.image_worker and self.image_worker.isRunning():
+            self.image_worker.terminate()
+            self.image_worker.wait(200)
+
         if res.poster_url:
+            self.lbl_poster.clear()
             self.lbl_poster.setText("Loading poster...")
             self.image_worker = ImageDownloadWorker(res.poster_url)
             self.image_worker.image_ready.connect(self._on_poster_downloaded)
+            self.image_worker.failed.connect(self._on_poster_failed)
             self.image_worker.start()
         else:
+            self.lbl_poster.clear()
             self.lbl_poster.setText("No poster image available")
 
     def _on_poster_downloaded(self, data: bytes):
@@ -365,16 +419,48 @@ class OnlineFetcherDialog(QDialog):
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
             )
+            self.lbl_poster.clear()
+            self.lbl_poster.setPixmap(scaled)
         else:
+            self.lbl_poster.clear()
             self.lbl_poster.setText("Could not display poster")
+
+    def _on_poster_failed(self, msg: str):
+        self.lbl_poster.clear()
+        self.lbl_poster.setText(f"Poster unavailable\n({msg})")
+
+    def _on_wiki_details_ready(self, res: SearchResult, extra: dict):
+        if self.selected_result is not res:
+            return
+        updated = False
+        if extra.get("overview") and not res.overview:
+            res.overview = extra["overview"]
+            updated = True
+        if extra.get("director") and not res.director:
+            res.director = extra["director"]
+            updated = True
+        if updated:
+            lines = [f"<b>{res.title}</b> ({res.year}) - <i>{res.media_type}</i>"]
+            if res.genres:
+                lines.append(f"<b>Genres:</b> {', '.join(res.genres)}")
+            if res.director:
+                lines.append(f"<b>Director:</b> {res.director}")
+            if res.cast:
+                lines.append(f"<b>Cast:</b> {res.cast}")
+            if res.overview:
+                lines.append(f"<br><b>Overview:</b> {res.overview}")
+            self.txt_details.setHtml("<br>".join(lines))
 
     def _stop_workers(self):
         if self.search_worker and self.search_worker.isRunning():
             self.search_worker.terminate()
-            self.search_worker.wait(500)
+            self.search_worker.wait(300)
         if self.image_worker and self.image_worker.isRunning():
             self.image_worker.terminate()
-            self.image_worker.wait(500)
+            self.image_worker.wait(300)
+        if self.detail_worker and self.detail_worker.isRunning():
+            self.detail_worker.terminate()
+            self.detail_worker.wait(300)
 
     def closeEvent(self, event):
         self._stop_workers()

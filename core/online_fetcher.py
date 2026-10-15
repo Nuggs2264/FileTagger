@@ -4,6 +4,7 @@ import io
 import json
 import urllib.request
 import urllib.parse
+import urllib.error
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict
 
@@ -164,7 +165,8 @@ def search_tmdb(query: str, api_key: str) -> List[SearchResult]:
                 year = date[:4] if date else ""
                 overview = item.get("overview", "")
                 poster_path = item.get("poster_path", "")
-                poster_url = f"https://image.tmdb.org/t/p/original{poster_path}" if poster_path else ""
+                # w780 provides high definition artwork with fast download speeds
+                poster_url = f"https://image.tmdb.org/t/p/w780{poster_path}" if poster_path else ""
 
                 res = SearchResult(
                     id=f"tmdb_{item.get('id')}",
@@ -176,8 +178,13 @@ def search_tmdb(query: str, api_key: str) -> List[SearchResult]:
                     source="TMDb"
                 )
                 results.append(res)
+    except urllib.error.HTTPError as he:
+        if he.code == 401:
+            raise RuntimeError("Invalid TMDb API Key (401 Unauthorized). Please check your key in the settings.")
+        raise RuntimeError(f"TMDb HTTP error {he.code}: {he.reason}")
     except Exception as e:
         print(f"TMDb search error: {e}")
+        raise e
 
     return results
 
