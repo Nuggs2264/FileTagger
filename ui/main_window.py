@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox, QLineEdit, QTextEdit, QLabel, QHeaderView,
     QProgressDialog, QApplication, QDialog
 )
-from PySide6.QtGui import QAction, QKeySequence, QDragEnterEvent, QDropEvent
+from PySide6.QtGui import QAction, QKeySequence, QDragEnterEvent, QDropEvent, QPainter, QColor, QFont
 
 from core.media_item import MediaItem, SUPPORTED_EXTENSIONS
 from core.tagger import read_media_item, save_media_item, normalize_cover_image
@@ -67,6 +67,23 @@ class FileSearchFilterProxyModel(QSortFilterProxyModel):
                 return True
         return False
 
+class FileTableView(QTableView):
+    """QTableView with an empty-state overlay when no files are loaded."""
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        model = self.model()
+        if model is None or model.rowCount() == 0:
+            painter = QPainter(self.viewport())
+            painter.setPen(QColor("#64748b"))
+            font = QFont("Segoe UI", 10)
+            painter.setFont(font)
+            text = (
+                "📂 No media files loaded\n\n"
+                "Drag & drop media files or folders here\n"
+                "or press Ctrl+O to add files, Ctrl+Shift+O to add a folder"
+            )
+            painter.drawText(self.viewport().rect(), Qt.AlignmentFlag.AlignCenter, text)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -104,7 +121,7 @@ class MainWindow(QMainWindow):
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Left side: File Table
-        self.table_view = QTableView()
+        self.table_view = FileTableView()
         self.table_view.setModel(self.proxy_model)
         self.table_view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.table_view.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)

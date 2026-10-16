@@ -69,6 +69,7 @@ class ThumbnailPanel(QWidget):
         super().__init__(parent)
         self.current_item: Optional[MediaItem] = None
         self._init_ui()
+        self.set_media_item(None)
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -97,6 +98,7 @@ class ThumbnailPanel(QWidget):
         btn_row_1.setSpacing(6)
 
         self.btn_choose = QPushButton("📁 Choose...")
+        self.btn_choose.setEnabled(False)
         self.btn_choose.clicked.connect(self._choose_image_file)
         btn_row_1.addWidget(self.btn_choose)
 
