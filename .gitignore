@@ -29,9 +29,13 @@ build/
 .filetagger_tmp_*
 .cover_tmp_*
 AUDIT_REPORT.md
+FULL_AUDIT.md
+audit_screenshots/
+audit_*.py
 test_sample*
 test_audio*
 test_video*
+test_scratch*
 
 # Local Media & Sidecar Files
 *.mp3
@@ -51,3 +55,4 @@ test_video*
 # IDE & Editor Configs
 .vscode/
 .idea/
+.gemini/
