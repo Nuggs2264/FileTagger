@@ -83,7 +83,7 @@ class ThumbnailPanel(QWidget):
 
         # Image Drop Label
         self.cover_label = CoverDropLabel()
-        self.cover_label.setMinimumSize(220, 220)
+        self.cover_label.setMinimumSize(160, 160)
         self.cover_label.image_dropped.connect(self._set_cover_data)
         layout.addWidget(self.cover_label, 1)
 

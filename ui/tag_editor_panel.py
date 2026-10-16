@@ -152,32 +152,46 @@ class TagEditorPanel(QWidget):
         form_layout.addWidget(self.txt_album_artist, row, 1, 1, 7)
         row += 1
 
-        # Compact metadata row: Year, Track #, Disc #, Genre
+        # Numbers row: Year, Track #, Disc #
         form_layout.addWidget(_make_lbl("Year:"), row, 0)
+        num_row_layout = QHBoxLayout()
+        num_row_layout.setSpacing(10)
         self.txt_year = QLineEdit()
-        self.txt_year.setFixedWidth(80)
+        self.txt_year.setFixedWidth(76)
+        self.txt_year.setPlaceholderText("YYYY")
         self._setup_input("year", self.txt_year)
-        form_layout.addWidget(self.txt_year, row, 1)
+        num_row_layout.addWidget(self.txt_year)
 
-        form_layout.addWidget(_make_lbl("Track #:", 60), row, 2)
+        lbl_track = QLabel("Track #:")
+        lbl_track.setStyleSheet("color: #94a3b8; font-weight: 500; font-size: 9pt;")
+        num_row_layout.addWidget(lbl_track)
         self.txt_track = QLineEdit()
-        self.txt_track.setFixedWidth(75)
+        self.txt_track.setFixedWidth(70)
+        self.txt_track.setPlaceholderText("1/12")
         self._setup_input("track_number", self.txt_track)
-        form_layout.addWidget(self.txt_track, row, 3)
+        num_row_layout.addWidget(self.txt_track)
 
-        form_layout.addWidget(_make_lbl("Disc #:", 55), row, 4)
+        lbl_disc = QLabel("Disc #:")
+        lbl_disc.setStyleSheet("color: #94a3b8; font-weight: 500; font-size: 9pt;")
+        num_row_layout.addWidget(lbl_disc)
         self.txt_disc = QLineEdit()
         self.txt_disc.setFixedWidth(65)
+        self.txt_disc.setPlaceholderText("1/2")
         self._setup_input("disc_number", self.txt_disc)
-        form_layout.addWidget(self.txt_disc, row, 5)
+        num_row_layout.addWidget(self.txt_disc)
+        num_row_layout.addStretch()
 
-        form_layout.addWidget(_make_lbl("Genre:", 55), row, 6)
+        form_layout.addLayout(num_row_layout, row, 1, 1, 7)
+        row += 1
+
+        # Dedicated Genre row
+        form_layout.addWidget(_make_lbl("Genre:"), row, 0)
         self.cmb_genre = QComboBox()
         self.cmb_genre.setEditable(True)
         self.cmb_genre.addItems(COMMON_GENRES)
         self._fields["genre"] = self.cmb_genre.lineEdit()
         self.cmb_genre.currentTextChanged.connect(lambda txt: self._on_field_edited("genre", txt))
-        form_layout.addWidget(self.cmb_genre, row, 7)
+        form_layout.addWidget(self.cmb_genre, row, 1, 1, 7)
         row += 1
 
         form_layout.addWidget(_make_lbl("Composer:"), row, 0)
@@ -237,7 +251,7 @@ class TagEditorPanel(QWidget):
         ext_btn_row.addStretch()
 
         ext_layout.addLayout(ext_btn_row)
-        self.tabs.addTab(extended_widget, "📑 All Tags & Metadata")
+        self.tabs.addTab(extended_widget, "📑 All Tags && Metadata")
 
         # -------------------------------------------------------------
         # Tab 3: Technical Specs
@@ -255,7 +269,7 @@ class TagEditorPanel(QWidget):
         self.tech_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         tech_layout.addWidget(self.tech_table, 1)
 
-        self.tabs.addTab(tech_widget, "⚙️ Stream & File Specs")
+        self.tabs.addTab(tech_widget, "⚙️ Stream && File Specs")
 
         main_layout.addWidget(self.tabs, 1)
 

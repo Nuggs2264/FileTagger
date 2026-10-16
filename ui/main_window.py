@@ -163,6 +163,7 @@ class MainWindow(QMainWindow):
 
         self.inspector_splitter.setStretchFactor(0, 3)
         self.inspector_splitter.setStretchFactor(1, 2)
+        self.inspector_splitter.setSizes([480, 260])
 
         self.main_splitter.addWidget(self.inspector_splitter)
         self.main_splitter.setStretchFactor(0, 3)
