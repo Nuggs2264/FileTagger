@@ -583,19 +583,65 @@ class MainWindow(QMainWindow):
             self.table_model.notify_all_changed()
 
     def auto_number_tracks(self):
-        items = self._get_selected_items() or self.table_model.items
+        selected = self._get_selected_items()
+        items = selected if selected else self.table_model.items
         if not items:
+            QMessageBox.information(self, "Auto-Number Tracks", "No files loaded to auto-number.")
             return
+
         total = len(items)
+        target_desc = f"{total} selected track(s)" if selected else f"all {total} loaded track(s)"
+        reply = QMessageBox.question(
+            self,
+            "Auto-Number Tracks",
+            f"Auto-number {target_desc} in sequence from 1/{total} to {total}/{total}?\n\n"
+            f"Example:\n  Track 1 → '1/{total}'\n  Track {total} → '{total}/{total}'\n\n"
+            "This will update track numbers in memory. (Press Ctrl+S to save to disk).",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
         for i, item in enumerate(items, 1):
             item.tags["track_number"] = f"{i}/{total}"
         self.table_model.notify_all_changed()
         self._on_selection_changed()
-        self.status_bar.showMessage(f"Auto-numbered {total} tracks.", 3000)
+        self.status_bar.showMessage(f"Auto-numbered {total} tracks. Press Ctrl+S to save.", 4000)
 
     def guess_tags_from_filename(self):
-        items = self._get_selected_items() or self.table_model.items
+        selected = self._get_selected_items()
+        items = selected if selected else self.table_model.items
         if not items:
+            QMessageBox.information(self, "Guess Tags from Filename", "No files loaded.")
+            return
+
+        total = len(items)
+        target_desc = f"{total} selected file(s)" if selected else f"all {total} loaded file(s)"
+        sample_item = items[0]
+        sample_base = os.path.splitext(sample_item.file_name)[0]
+        sample_m = re.match(r"^(?:(\d+)\s*[-.]\s*)?([^-]+)\s*-\s*(.+)$", sample_base)
+        sample_hint = f"Sample: '{sample_item.file_name}'"
+        if sample_m:
+            tr, art, tit = sample_m.group(1), sample_m.group(2).strip(), sample_m.group(3).strip()
+            preview_parts = []
+            if tr:
+                preview_parts.append(f"Track: {tr}")
+            preview_parts.append(f"Artist: {art}")
+            preview_parts.append(f"Title: {tit}")
+            sample_hint += f"\n  → {', '.join(preview_parts)}"
+
+        reply = QMessageBox.question(
+            self,
+            "Guess Tags from Filename",
+            f"Extract Artist, Title, and Track Number from filenames for {target_desc}?\n\n"
+            f"{sample_hint}\n\n"
+            "Pattern: 'Artist - Title' or '01 - Artist - Title'\n"
+            "(Press Ctrl+S afterwards to save to disk).",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+        )
+        if reply != QMessageBox.StandardButton.Yes:
             return
 
         updated = 0
@@ -616,10 +662,11 @@ class MainWindow(QMainWindow):
                 # Fallback: Just set title as filename
                 if not item.tags.get("title"):
                     item.tags["title"] = base
+                updated += 1
 
         self.table_model.notify_all_changed()
         self._on_selection_changed()
-        self.status_bar.showMessage(f"Extracted tags for {updated} files.", 3000)
+        self.status_bar.showMessage(f"Extracted tags for {updated} files. Press Ctrl+S to save.", 4000)
 
     def open_online_fetcher(self):
         items = self._get_selected_items()
