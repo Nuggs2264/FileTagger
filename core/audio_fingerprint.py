@@ -1,6 +1,8 @@
 import os
 import re
 import sys
+import hashlib
+import tempfile
 import json
 import shutil
 import urllib.request
@@ -12,6 +14,7 @@ from typing import List, Optional, Tuple
 
 ACOUSTID_DEFAULT_CLIENT = "1vOwZtEn"
 FPCALC_DOWNLOAD_URL = "https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-windows-x86_64.zip"
+FPCALC_EXPECTED_SHA256 = "00dcc56d911f2dea84737aa9dc8e2d118c9eb7a037d815d1ed001d8593e8fbee"
 
 @dataclass
 class AudioFingerprintMatch:
@@ -31,7 +34,7 @@ def get_fpcalc_path() -> Optional[str]:
     Checks:
     1. Local bin/fpcalc.exe
     2. System PATH
-    3. Auto-downloads AcoustID's official precompiled Windows binary into bin/
+    3. Auto-downloads AcoustID's official precompiled Windows binary into bin/ (verified via SHA-256)
     """
     # 1. Local bin directory
     app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -54,12 +57,25 @@ def get_fpcalc_path() -> Optional[str]:
                 headers={"User-Agent": "FileTagger/1.0 (Portable Downloader)"}
             )
             with urllib.request.urlopen(req, timeout=15) as resp:
-                data = resp.read()
+                data = resp.read(10 * 1024 * 1024)  # Cap at 10 MB
                 with zipfile.ZipFile(io.BytesIO(data)) as z:
                     for name in z.namelist():
                         if name.endswith("fpcalc.exe"):
-                            with open(local_bin, "wb") as f:
-                                f.write(z.read(name))
+                            exe_bytes = z.read(name)
+                            digest = hashlib.sha256(exe_bytes).hexdigest().lower()
+                            if FPCALC_EXPECTED_SHA256 and digest != FPCALC_EXPECTED_SHA256.lower():
+                                raise RuntimeError(f"fpcalc.exe SHA-256 mismatch: {digest}")
+                            fd, tmp_path = tempfile.mkstemp(dir=bin_dir, suffix=".tmp")
+                            try:
+                                with os.fdopen(fd, "wb") as f:
+                                    f.write(exe_bytes)
+                                os.replace(tmp_path, local_bin)
+                            finally:
+                                if os.path.exists(tmp_path):
+                                    try:
+                                        os.remove(tmp_path)
+                                    except Exception:
+                                        pass
                             return local_bin
         except Exception:
             pass

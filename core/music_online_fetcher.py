@@ -174,10 +174,9 @@ def search_discogs(query: str, token: str = "", limit: int = 15) -> List[MusicSe
         "type": "release",
         "per_page": limit
     }
-    if token:
-        params["token"] = token
-
     headers = {"User-Agent": USER_AGENT}
+    if token and token.strip():
+        headers["Authorization"] = f"Discogs token={token.strip()}"
 
     try:
         r = requests.get(url, params=params, headers=headers, timeout=10)
@@ -241,15 +240,31 @@ def search_all_music_sources(query: str, discogs_token: str = "") -> List[MusicS
 
     return all_results
 
+MAX_IMAGE_BYTES = 15 * 1024 * 1024  # 15 MB hard cap
+
 def download_music_image_bytes(url: str, timeout: int = 12) -> Optional[bytes]:
     """Downloads image data from URL."""
     if not url:
         return None
+    parsed = urllib.parse.urlparse(url.strip())
+    if parsed.scheme not in ("https", "http") or not parsed.netloc:
+        return None
     headers = {"User-Agent": USER_AGENT}
     try:
-        r = requests.get(url, headers=headers, timeout=timeout)
-        if r.status_code == 200 and len(r.content) > 500:
-            return r.content
+        with requests.get(url, headers=headers, timeout=timeout, stream=True) as r:
+            if r.status_code != 200:
+                return None
+            chunks = []
+            total = 0
+            for chunk in r.iter_content(chunk_size=65536):
+                if chunk:
+                    total += len(chunk)
+                    if total > MAX_IMAGE_BYTES:
+                        return None
+                    chunks.append(chunk)
+            content = b"".join(chunks)
+            return content if len(content) > 500 else None
     except Exception:
         pass
     return None
+

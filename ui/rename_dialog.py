@@ -9,11 +9,29 @@ from PySide6.QtWidgets import (
 )
 from core.media_item import MediaItem
 
-ILLEGAL_CHARS = r'[\\/*?:"<>|]'
+ILLEGAL_CHARS = r'[\\/*?:"<>|\x00-\x1f]'
+WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
 
 def sanitize_filename(name: str) -> str:
+    if not name:
+        return ""
+    # Replace illegal NTFS characters and control characters
     cleaned = re.sub(ILLEGAL_CHARS, "_", name)
-    return cleaned.strip()
+    # Collapse multiple whitespace and strip leading/trailing spaces and dots
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
+    # Prevent relative traversal tokens
+    if cleaned in {".", ".."}:
+        cleaned = "_"
+    # Guard against Windows reserved device names (case-insensitive stem check)
+    stem = cleaned.split(".")[0].upper()
+    if stem in WINDOWS_RESERVED_NAMES:
+        cleaned = f"_{cleaned}"
+    # Enforce reasonable max filename stem length (NTFS 255-char component limit)
+    return cleaned[:200].strip(" .")
 
 class RenameDialog(QDialog):
     def __init__(self, items: List[MediaItem], parent=None):
@@ -85,16 +103,19 @@ class RenameDialog(QDialog):
             "title": sanitize_filename(item.tags.get("title", "") or "Untitled"),
             "artist": sanitize_filename(item.tags.get("artist", "") or "Unknown Artist"),
             "album": sanitize_filename(item.tags.get("album", "") or "Unknown Album"),
-            "track_number": str(item.tags.get("track_number", "00")).zfill(2),
+            "track_number": sanitize_filename(str(item.tags.get("track_number", "00")).zfill(2)),
             "year": sanitize_filename(item.tags.get("year", "") or ""),
             "genre": sanitize_filename(item.tags.get("genre", "") or "")
         }
         
         try:
-            base = pattern.format(**data)
+            # Safe token replacement without arbitrary Python str.format attribute access
+            base = pattern
+            for k, v in data.items():
+                base = base.replace(f"{{{k}}}", v)
             base = sanitize_filename(base)
             if not base:
-                base = item.file_name
+                return item.file_name
             return f"{base}{item.extension}"
         except Exception:
             return item.file_name
@@ -122,8 +143,11 @@ class RenameDialog(QDialog):
             if new_name == item.file_name:
                 continue
 
-            dir_path = os.path.dirname(item.file_path)
-            new_path = os.path.join(dir_path, new_name)
+            dir_path = os.path.abspath(os.path.dirname(item.file_path))
+            new_path = os.path.abspath(os.path.join(dir_path, os.path.basename(new_name)))
+            if os.path.dirname(new_path) != dir_path:
+                errors.append(f"Invalid target path rejected: {new_name}")
+                continue
 
             if os.path.exists(new_path) and new_path.lower() != item.file_path.lower():
                 errors.append(f"Destination already exists: {new_name}")

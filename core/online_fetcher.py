@@ -183,8 +183,10 @@ def search_tmdb(query: str, api_key: str) -> List[SearchResult]:
             raise RuntimeError("Invalid TMDb API Key (401 Unauthorized). Please check your key in the settings.")
         raise RuntimeError(f"TMDb HTTP error {he.code}: {he.reason}")
     except Exception as e:
-        print(f"TMDb search error: {e}")
-        raise e
+        clean_key = api_key.strip()
+        safe_err = str(e).replace(clean_key, "[REDACTED]") if clean_key else str(e)
+        print(f"TMDb search error: {safe_err}")
+        raise RuntimeError(f"TMDb search failed: {safe_err}")
 
     return results
 
@@ -210,17 +212,35 @@ def fetch_wikipedia_plot_and_director(title: str) -> Dict[str, str]:
         pass
     return info
 
+MAX_IMAGE_BYTES = 15 * 1024 * 1024  # 15 MB hard cap
+
 def download_image_bytes(image_url: str) -> Optional[bytes]:
     """Downloads poster image data over HTTP/HTTPS with proper timeout and headers."""
     if not image_url:
         return None
     try:
+        parsed = urllib.parse.urlparse(image_url.strip())
+        if parsed.scheme not in ("https", "http") or not parsed.netloc:
+            print(f"Rejected unsafe image URL scheme: {image_url}")
+            return None
+
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
         req = urllib.request.Request(image_url, headers=headers)
         with urllib.request.urlopen(req, timeout=12) as resp:
-            return resp.read()
+            chunks = []
+            total = 0
+            while True:
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_IMAGE_BYTES:
+                    raise ValueError("Image exceeds maximum allowed size (15 MB)")
+                chunks.append(chunk)
+            return b"".join(chunks)
     except Exception as e:
         print(f"Error downloading image from {image_url}: {e}")
         return None
+

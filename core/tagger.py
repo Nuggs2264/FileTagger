@@ -19,6 +19,8 @@ from mutagen.oggopus import OggOpus
 from mutagen.wave import WAVE
 from PIL import Image
 
+Image.MAX_IMAGE_PIXELS = 36_000_000  # Cap at 36 MP (e.g., 6000x6000) to prevent decompression bombs
+
 from core.media_item import MediaItem, STANDARD_TAG_KEYS
 from core.ffmpeg_utils import (
     get_media_duration_and_resolution,
@@ -71,15 +73,15 @@ REVERSE_ID3_FRAME_MAP = {v: k for k, v in ID3_FRAME_MAP.items()}
 def detect_image_mime(data: bytes) -> str:
     """Detects if image data is JPEG, PNG, WEBP, etc."""
     try:
-        img = Image.open(io.BytesIO(data))
-        fmt = (img.format or "").upper()
-        if fmt == "PNG":
-            return "image/png"
-        elif fmt == "WEBP":
-            return "image/webp"
-        elif fmt == "GIF":
-            return "image/gif"
-        return "image/jpeg"
+        with Image.open(io.BytesIO(data)) as img:
+            fmt = (img.format or "").upper()
+            if fmt == "PNG":
+                return "image/png"
+            elif fmt == "WEBP":
+                return "image/webp"
+            elif fmt == "GIF":
+                return "image/gif"
+            return "image/jpeg"
     except Exception:
         return "image/jpeg"
 
@@ -90,20 +92,22 @@ def normalize_cover_image(data: bytes, prefer_format: str = "JPEG") -> tuple:
     Ensures container decoders (like MP4 covr or ID3 APIC) never receive corrupt/unsupported formats.
     """
     try:
-        img = Image.open(io.BytesIO(data))
-        fmt = (img.format or "").upper()
-        if prefer_format.upper() == "PNG" and fmt == "PNG":
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            return buf.getvalue(), "image/png"
-        else:
-            if img.mode in ("RGBA", "LA", "P"):
-                img = img.convert("RGB")
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=95, optimize=True)
-            return buf.getvalue(), "image/jpeg"
-    except Exception:
-        return data, "image/jpeg"
+        with Image.open(io.BytesIO(data)) as img:
+            fmt = (img.format or "").upper()
+            if img.width > 3000 or img.height > 3000:
+                img.thumbnail((3000, 3000), Image.Resampling.LANCZOS)
+            if prefer_format.upper() == "PNG" and fmt == "PNG":
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                return buf.getvalue(), "image/png"
+            else:
+                if img.mode in ("RGBA", "LA", "P"):
+                    img = img.convert("RGB")
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=95, optimize=True)
+                return buf.getvalue(), "image/jpeg"
+    except Exception as e:
+        raise ValueError(f"Invalid or unsupported cover image data: {e}")
 
 def notify_windows_shell(file_path: str):
     """Notifies Windows Explorer that a file has been modified to invalidate cached thumbnails."""
@@ -139,8 +143,10 @@ def read_media_item(file_path: str) -> MediaItem:
     except Exception as e:
         item.error = f"Read error: {str(e)}"
 
-    # Retrieve technical stream details and probe raw metadata
+    # Retrieve technical stream details and probe raw metadata in a single pass
     tech_info, raw_meta = get_media_technical_and_raw_metadata(file_path)
+    probed_dur_str = tech_info.pop("_duration_sec", "")
+    probed_res = tech_info.pop("_resolution", "")
     item.technical_info.update(tech_info)
 
     # For container formats where mutagen doesn't write extra tags (like generic MKV/AVI),
@@ -152,11 +158,19 @@ def read_media_item(file_path: str) -> MediaItem:
         elif rk_lower not in item.tags and rk not in item.extra_tags:
             item.extra_tags[rk] = rv
 
+    if item.duration <= 0 and probed_dur_str:
+        try:
+            item.duration = float(probed_dur_str)
+        except ValueError:
+            pass
+    if item.is_video and not item.resolution and probed_res:
+        item.resolution = probed_res
+
     if item.duration <= 0 or (item.is_video and not item.resolution):
         dur, res = get_media_duration_and_resolution(file_path)
-        if dur > 0:
+        if dur > 0 and item.duration <= 0:
             item.duration = dur
-        if res:
+        if res and not item.resolution:
             item.resolution = res
 
     item.mark_saved()
@@ -663,8 +677,13 @@ def _save_mkv(item: MediaItem):
     if not ffmpeg_exe:
         raise RuntimeError("FFmpeg is required to save MKV tags/thumbnails")
 
-    temp_dir = tempfile.gettempdir()
-    temp_out = os.path.join(temp_dir, f"filetagger_tmp_{os.path.basename(item.file_path)}")
+    target_dir = os.path.dirname(os.path.abspath(item.file_path))
+    fd_out, temp_out = tempfile.mkstemp(
+        prefix=".filetagger_tmp_",
+        suffix=item.extension,
+        dir=target_dir
+    )
+    os.close(fd_out)
     cover_temp = None
 
     cmd = [ffmpeg_exe, "-hide_banner", "-y", "-i", item.file_path, "-map", "0", "-c", "copy"]
@@ -687,8 +706,8 @@ def _save_mkv(item: MediaItem):
     if item.cover_modified and item.cover_bytes:
         mime = item.cover_mime or detect_image_mime(item.cover_bytes)
         ext = ".png" if mime == "image/png" else ".jpg"
-        cover_temp = os.path.join(temp_dir, f"cover_tmp{ext}")
-        with open(cover_temp, "wb") as f:
+        fd_cov, cover_temp = tempfile.mkstemp(prefix=".cover_tmp_", suffix=ext, dir=target_dir)
+        with os.fdopen(fd_cov, "wb") as f:
             f.write(item.cover_bytes)
 
         cmd.extend([
@@ -710,7 +729,7 @@ def _save_mkv(item: MediaItem):
             err = proc.stderr.decode("utf-8", errors="ignore")
             raise RuntimeError(f"FFmpeg MKV update failed: {err}")
 
-        shutil.move(temp_out, item.file_path)
+        os.replace(temp_out, item.file_path)
     finally:
         if cover_temp and os.path.exists(cover_temp):
             try:

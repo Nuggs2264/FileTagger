@@ -1,3 +1,4 @@
+import html
 from typing import List, Optional, Dict
 from PySide6.QtCore import Qt, QThread, Signal, QSettings
 from PySide6.QtWidgets import (
@@ -82,6 +83,7 @@ class OnlineFetcherDialog(QDialog):
         self.search_worker: Optional[SearchWorker] = None
         self.image_worker: Optional[ImageDownloadWorker] = None
         self.detail_worker: Optional[DetailWorker] = None
+        self._retired_workers: list = []
 
         self.setWindowTitle("Online Movie & TV Poster & Metadata Fetcher")
         self.resize(880, 620)
@@ -135,6 +137,7 @@ class OnlineFetcherDialog(QDialog):
         self.tmdb_row.addWidget(QLabel("TMDb API Key:"))
         saved_key = str(self.settings.value("tmdb_api_key", "")).strip()
         self.txt_tmdb_key = QLineEdit(saved_key)
+        self.txt_tmdb_key.setEchoMode(QLineEdit.EchoMode.PasswordEchoOnEdit)
         self.txt_tmdb_key.setPlaceholderText("Paste your 32-character TMDb v3 API Key...")
         self.txt_tmdb_key.returnPressed.connect(self._on_tmdb_key_enter)
         self.txt_tmdb_key.textChanged.connect(self._on_tmdb_key_changed)
@@ -325,6 +328,9 @@ class OnlineFetcherDialog(QDialog):
         self.lbl_poster.setText("Searching...")
         self.txt_details.clear()
 
+        if self.search_worker and self.search_worker.isRunning():
+            self._retire_worker(self.search_worker)
+
         self.search_worker = SearchWorker(query, engine, tmdb_key)
         self.search_worker.results_ready.connect(self._on_results_ready)
         self.search_worker.error_occurred.connect(self._on_search_error)
@@ -360,6 +366,21 @@ class OnlineFetcherDialog(QDialog):
         self.btn_search.setEnabled(True)
         QMessageBox.warning(self, "Search Error", f"Failed to fetch metadata: {err}")
 
+    def _render_details_html(self, res: SearchResult):
+        lines = [
+            f"<b>{html.escape(res.title)}</b> ({html.escape(res.year)}) - <i>{html.escape(res.media_type)}</i>"
+        ]
+        if res.genres:
+            safe_genres = ", ".join(html.escape(g) for g in res.genres)
+            lines.append(f"<b>Genres:</b> {safe_genres}")
+        if res.director:
+            lines.append(f"<b>Director:</b> {html.escape(res.director)}")
+        if res.cast:
+            lines.append(f"<b>Cast:</b> {html.escape(res.cast)}")
+        if res.overview:
+            lines.append(f"<br><b>Overview:</b> {html.escape(res.overview)}")
+        self.txt_details.setHtml("<br>".join(lines))
+
     def _on_result_selected(self):
         selected_rows = self.table_results.selectionModel().selectedRows()
         if not selected_rows:
@@ -372,23 +393,13 @@ class OnlineFetcherDialog(QDialog):
         self.selected_result = res
         self.btn_apply.setEnabled(True)
 
-        # Build details HTML
-        lines = [f"<b>{res.title}</b> ({res.year}) - <i>{res.media_type}</i>"]
-        if res.genres:
-            lines.append(f"<b>Genres:</b> {', '.join(res.genres)}")
-        if res.director:
-            lines.append(f"<b>Director:</b> {res.director}")
-        if res.cast:
-            lines.append(f"<b>Cast:</b> {res.cast}")
-        if res.overview:
-            lines.append(f"<br><b>Overview:</b> {res.overview}")
-        self.txt_details.setHtml("<br>".join(lines))
+        # Build details HTML safely
+        self._render_details_html(res)
 
         # Asynchronously fetch Wikipedia summary if overview is missing (e.g. IMDb results)
         if not res.overview and res.title and res.source == "IMDb":
             if self.detail_worker and self.detail_worker.isRunning():
-                self.detail_worker.terminate()
-                self.detail_worker.wait(200)
+                self._retire_worker(self.detail_worker)
             self.detail_worker = DetailWorker(res.title)
             self.detail_worker.details_ready.connect(lambda extra, r=res: self._on_wiki_details_ready(r, extra))
             self.detail_worker.start()
@@ -396,8 +407,7 @@ class OnlineFetcherDialog(QDialog):
         # Download and display poster preview
         self.downloaded_poster_bytes = None
         if self.image_worker and self.image_worker.isRunning():
-            self.image_worker.terminate()
-            self.image_worker.wait(200)
+            self._retire_worker(self.image_worker)
 
         if res.poster_url:
             self.lbl_poster.clear()
@@ -440,27 +450,22 @@ class OnlineFetcherDialog(QDialog):
             res.director = extra["director"]
             updated = True
         if updated:
-            lines = [f"<b>{res.title}</b> ({res.year}) - <i>{res.media_type}</i>"]
-            if res.genres:
-                lines.append(f"<b>Genres:</b> {', '.join(res.genres)}")
-            if res.director:
-                lines.append(f"<b>Director:</b> {res.director}")
-            if res.cast:
-                lines.append(f"<b>Cast:</b> {res.cast}")
-            if res.overview:
-                lines.append(f"<br><b>Overview:</b> {res.overview}")
-            self.txt_details.setHtml("<br>".join(lines))
+            self._render_details_html(res)
+
+    def _retire_worker(self, worker: Optional[QThread]):
+        if worker and worker.isRunning():
+            worker.blockSignals(True)
+            self._retired_workers.append(worker)
+            worker.finished.connect(
+                lambda w=worker: self._retired_workers.remove(w) if w in self._retired_workers else None
+            )
 
     def _stop_workers(self):
-        if self.search_worker and self.search_worker.isRunning():
-            self.search_worker.terminate()
-            self.search_worker.wait(300)
-        if self.image_worker and self.image_worker.isRunning():
-            self.image_worker.terminate()
-            self.image_worker.wait(300)
-        if self.detail_worker and self.detail_worker.isRunning():
-            self.detail_worker.terminate()
-            self.detail_worker.wait(300)
+        for w in [self.search_worker, self.image_worker, self.detail_worker, *self._retired_workers]:
+            if w and w.isRunning():
+                w.blockSignals(True)
+                w.wait(500)
+        self._retired_workers.clear()
 
     def closeEvent(self, event):
         self._stop_workers()
@@ -475,3 +480,4 @@ class OnlineFetcherDialog(QDialog):
             return
         self._stop_workers()
         self.accept()
+

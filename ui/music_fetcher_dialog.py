@@ -1,3 +1,4 @@
+import html
 import threading
 from typing import List, Optional, Dict
 from PySide6.QtCore import Qt, QObject, Signal, QSettings
@@ -17,11 +18,11 @@ from core.music_online_fetcher import (
 from core.tagger import normalize_cover_image
 
 class MusicSearchSignals(QObject):
-    results_ready = Signal(list)
-    error_occurred = Signal(str)
+    results_ready = Signal(int, list)
+    error_occurred = Signal(int, str)
 
 class MusicImageSignals(QObject):
-    image_ready = Signal(bytes)
+    image_ready = Signal(int, bytes)
 
 class MusicFetcherDialog(QDialog):
     def __init__(self, initial_query: str = "", parent=None):
@@ -31,6 +32,8 @@ class MusicFetcherDialog(QDialog):
         self.search_results: List[MusicSearchResult] = []
         self.selected_result: Optional[MusicSearchResult] = None
         self.downloaded_cover_bytes: Optional[bytes] = None
+        self._search_req_id = 0
+        self._img_req_id = 0
 
         self.setWindowTitle("Online Music Album Art & Metadata Fetcher (iTunes / Deezer / MusicBrainz / Discogs)")
         self.resize(920, 640)
@@ -81,6 +84,7 @@ class MusicFetcherDialog(QDialog):
         self.discogs_row = QHBoxLayout()
         self.discogs_row.addWidget(QLabel("Discogs Personal Token:"))
         self.txt_discogs_token = QLineEdit(self.settings.value("discogs_token", ""))
+        self.txt_discogs_token.setEchoMode(QLineEdit.EchoMode.PasswordEchoOnEdit)
         self.txt_discogs_token.setPlaceholderText("Enter Discogs Personal Access Token (from discogs.com/settings/developers)...")
         self.txt_discogs_token.textChanged.connect(lambda t: self.settings.setValue("discogs_token", t))
         self.discogs_row.addWidget(self.txt_discogs_token, 1)
@@ -215,6 +219,9 @@ class MusicFetcherDialog(QDialog):
         if not query:
             return
 
+        self._search_req_id += 1
+        req_id = self._search_req_id
+
         self.btn_search.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.btn_apply.setEnabled(False)
@@ -226,9 +233,10 @@ class MusicFetcherDialog(QDialog):
         engine = self.cmb_engine.currentText()
         discogs_tok = self.txt_discogs_token.text().strip()
 
-        self.search_signals = MusicSearchSignals()
-        self.search_signals.results_ready.connect(self._on_results_ready)
-        self.search_signals.error_occurred.connect(self._on_search_error)
+        signals = MusicSearchSignals(self)
+        signals.results_ready.connect(self._on_results_ready)
+        signals.error_occurred.connect(self._on_search_error)
+        self.search_signals = signals
 
         def _worker():
             try:
@@ -243,19 +251,21 @@ class MusicFetcherDialog(QDialog):
                 else:
                     res = search_all_music_sources(query, discogs_token=discogs_tok)
                 try:
-                    self.search_signals.results_ready.emit(res)
+                    signals.results_ready.emit(req_id, res)
                 except RuntimeError:
                     pass
             except Exception as e:
                 try:
-                    self.search_signals.error_occurred.emit(str(e))
+                    signals.error_occurred.emit(req_id, str(e))
                 except RuntimeError:
                     pass
 
         t = threading.Thread(target=_worker, daemon=True)
         t.start()
 
-    def _on_results_ready(self, results: List[MusicSearchResult]):
+    def _on_results_ready(self, req_id: int, results: List[MusicSearchResult]):
+        if req_id != self._search_req_id:
+            return
         self.progress_bar.setVisible(False)
         self.btn_search.setEnabled(True)
         self.search_results = results
@@ -276,7 +286,9 @@ class MusicFetcherDialog(QDialog):
 
         self.table_results.selectRow(0)
 
-    def _on_search_error(self, err: str):
+    def _on_search_error(self, req_id: int, err: str):
+        if req_id != self._search_req_id:
+            return
         self.progress_bar.setVisible(False)
         self.btn_search.setEnabled(True)
         QMessageBox.warning(self, "Search Error", f"Search failed:\n{err}")
@@ -290,33 +302,37 @@ class MusicFetcherDialog(QDialog):
         self.selected_result = self.search_results[row]
         res = self.selected_result
 
-        # Details text
-        details = f"<h3>{res.album}</h3>"
-        details += f"<p><b>Artist:</b> {res.artist}<br>"
+        # Details text (HTML-escaped against untrusted API metadata)
+        details = f"<h3>{html.escape(res.album)}</h3>"
+        details += f"<p><b>Artist:</b> {html.escape(res.artist)}<br>"
         if res.year:
-            details += f"<b>Release Year:</b> {res.year}<br>"
+            details += f"<b>Release Year:</b> {html.escape(res.year)}<br>"
         if res.genre:
-            details += f"<b>Genre:</b> {res.genre}<br>"
+            details += f"<b>Genre:</b> {html.escape(res.genre)}<br>"
         if res.track_count:
-            details += f"<b>Track Count:</b> {res.track_count}<br>"
-        details += f"<b>Source:</b> {res.source}</p>"
+            details += f"<b>Track Count:</b> {int(res.track_count)}<br>"
+        details += f"<b>Source:</b> {html.escape(res.source)}</p>"
         self.txt_details.setHtml(details)
 
         # Download cover art if available
         if res.cover_url:
+            self._img_req_id += 1
+            img_req_id = self._img_req_id
+
             self.art_preview.setText("Downloading high-res cover art...")
             self.art_info_label.setText("")
             self.downloaded_cover_bytes = None
 
-            self.image_signals = MusicImageSignals()
-            self.image_signals.image_ready.connect(self._on_image_downloaded)
+            img_signals = MusicImageSignals(self)
+            img_signals.image_ready.connect(self._on_image_downloaded)
+            self.image_signals = img_signals
 
             cover_url = res.cover_url
             def _img_worker():
                 img_data = download_music_image_bytes(cover_url)
                 if img_data:
                     try:
-                        self.image_signals.image_ready.emit(img_data)
+                        img_signals.image_ready.emit(img_req_id, img_data)
                     except RuntimeError:
                         pass
 
@@ -328,7 +344,9 @@ class MusicFetcherDialog(QDialog):
             self.downloaded_cover_bytes = None
             self.btn_apply.setEnabled(True)
 
-    def _on_image_downloaded(self, data: bytes):
+    def _on_image_downloaded(self, req_id: int, data: bytes):
+        if req_id != self._img_req_id:
+            return
         self.downloaded_cover_bytes = data
         pixmap = QPixmap()
         if pixmap.loadFromData(data):

@@ -42,7 +42,7 @@ An advanced audio and video metadata tagger and thumbnail editor inspired by dBp
 ## Quick Start
 
 ### Windows Explorer
-Double click [`run_app.bat`](file:///p:/code%20testing/FileTagger/run_app.bat) to launch the application.
+Double click [`run_app.bat`](run_app.bat) to launch the application.
 
 ### Command Line
 ```powershell

@@ -3,24 +3,50 @@
 Thumbs.db
 desktop.ini
 
-# Environment Variables & Secrets
+# Environment Variables, Secrets & API Keys
 .env
+.env.*
+*.key
+*.pem
+*secret*
+*api_key*
 config.json
+settings.ini
 
-# Dependencies & Virtual Environments
+# Dependencies, Virtual Environments & Downloaded Binaries
 .venv/
 venv/
 env/
 __pycache__/
 *.pyc
+bin/
 
-# Build Outputs, Test Files & Logs
+# Build Outputs, Internal Reports, Temp Files & Logs
 dist/
 build/
 *.log
+*.tmp
+.filetagger_tmp_*
+.cover_tmp_*
+AUDIT_REPORT.md
 test_sample*
 test_audio*
 test_video*
+
+# Local Media & Sidecar Files
+*.mp3
+*.flac
+*.mp4
+*.mkv
+*.m4a
+*.m4v
+*.mov
+*.avi
+*.webm
+*.wav
+*.ogg
+*.opus
+*.lrc
 
 # IDE & Editor Configs
 .vscode/

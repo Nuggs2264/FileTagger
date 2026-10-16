@@ -29,6 +29,7 @@ class FrameGrabberDialog(QDialog):
         self.captured_bytes: Optional[bytes] = None
 
         self.worker: Optional[FrameExtractWorker] = None
+        self._retired_workers: list = []
         self.debounce_timer = QTimer(self)
         self.debounce_timer.setSingleShot(True)
         self.debounce_timer.setInterval(120)  # 120ms debounce
@@ -154,8 +155,15 @@ class FrameGrabberDialog(QDialog):
 
     def _trigger_extract(self):
         if self.worker and self.worker.isRunning():
-            self.worker.terminate()
-            self.worker.wait()
+            try:
+                self.worker.frame_ready.disconnect(self._on_frame_ready)
+            except Exception:
+                pass
+            old_worker = self.worker
+            self._retired_workers.append(old_worker)
+            old_worker.finished.connect(
+                lambda w=old_worker: self._retired_workers.remove(w) if w in self._retired_workers else None
+            )
 
         self.preview_label.setText("Loading frame...")
         self.worker = FrameExtractWorker(self.file_path, self.current_time)
@@ -175,8 +183,26 @@ class FrameGrabberDialog(QDialog):
         else:
             self.preview_label.setText("Could not render frame")
 
+    def _cleanup_workers(self):
+        self.debounce_timer.stop()
+        for w in [self.worker, *self._retired_workers]:
+            if w and w.isRunning():
+                w.blockSignals(True)
+                w.wait(1000)
+        self._retired_workers.clear()
+
+    def closeEvent(self, event):
+        self._cleanup_workers()
+        super().closeEvent(event)
+
+    def reject(self):
+        self._cleanup_workers()
+        super().reject()
+
     def _accept_thumbnail(self):
+        self._cleanup_workers()
         if self.captured_bytes:
             self.accept()
         else:
             self.reject()
+

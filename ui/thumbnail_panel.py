@@ -12,6 +12,7 @@ from PySide6.QtGui import QPixmap, QDragEnterEvent, QDropEvent
 from core.media_item import MediaItem
 from core.tagger import normalize_cover_image
 from ui.frame_grabber_dialog import FrameGrabberDialog
+from ui.rename_dialog import sanitize_filename
 
 class CoverDropLabel(QLabel):
     image_dropped = Signal(bytes, str)
@@ -221,7 +222,8 @@ class ThumbnailPanel(QWidget):
             return
 
         ext = ".png" if (self.current_item.cover_mime == "image/png") else ".jpg"
-        default_name = f"cover_{self.current_item.tags.get('title') or 'export'}{ext}"
+        safe_title = sanitize_filename(self.current_item.tags.get("title") or "export") or "export"
+        default_name = f"cover_{safe_title}{ext}"
         save_path, _ = QFileDialog.getSaveFileName(
             self,
             "Export Cover Art",

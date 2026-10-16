@@ -21,7 +21,7 @@ class ReplayGainResult:
     album_gain: Optional[str] = None
     album_peak: Optional[str] = None
 
-def scan_track_loudness(file_path: str) -> Tuple[float, float, float]:
+def scan_track_loudness(file_path: str, proc_list: Optional[list] = None) -> Tuple[float, float, float]:
     """
     Runs FFmpeg's ebur128 audio filter to calculate:
     - Integrated loudness (LUFS)
@@ -52,7 +52,7 @@ def scan_track_loudness(file_path: str) -> Tuple[float, float, float]:
         "-"
     ]
 
-    proc = subprocess.run(
+    proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -60,10 +60,18 @@ def scan_track_loudness(file_path: str) -> Tuple[float, float, float]:
         encoding="utf-8",
         errors="ignore",
         startupinfo=startupinfo,
-        timeout=180
     )
-
-    stderr_output = proc.stderr
+    if proc_list is not None:
+        proc_list.append(proc)
+    try:
+        _, stderr_output = proc.communicate(timeout=180)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise
+    finally:
+        if proc_list is not None and proc in proc_list:
+            proc_list.remove(proc)
 
     # Parse Integrated loudness
     # Example in FFmpeg:

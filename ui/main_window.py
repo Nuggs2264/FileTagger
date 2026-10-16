@@ -280,6 +280,9 @@ class MainWindow(QMainWindow):
             self.load_paths([folder])
 
     def load_paths(self, paths: List[str]):
+        if getattr(self, "_is_loading", False):
+            return
+
         all_files: List[str] = []
         for path in paths:
             if os.path.isfile(path):
@@ -303,24 +306,28 @@ class MainWindow(QMainWindow):
         if not new_files:
             return
 
-        progress = QProgressDialog("Reading metadata and covers...", "Cancel", 0, len(new_files), self)
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setMinimumDuration(200)
+        self._is_loading = True
+        try:
+            progress = QProgressDialog("Reading metadata and covers...", "Cancel", 0, len(new_files), self)
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(200)
 
-        items_to_add: List[MediaItem] = []
-        for i, fpath in enumerate(new_files):
-            if progress.wasCanceled():
-                break
-            progress.setValue(i)
-            progress.setLabelText(f"Reading ({i+1}/{len(new_files)}): {os.path.basename(fpath)}")
-            QApplication.processEvents()
+            items_to_add: List[MediaItem] = []
+            for i, fpath in enumerate(new_files):
+                if progress.wasCanceled():
+                    break
+                progress.setValue(i)
+                progress.setLabelText(f"Reading ({i+1}/{len(new_files)}): {os.path.basename(fpath)}")
+                QApplication.processEvents()
 
-            item = read_media_item(fpath)
-            items_to_add.append(item)
+                item = read_media_item(fpath)
+                items_to_add.append(item)
 
-        progress.setValue(len(new_files))
-        self.table_model.add_items(items_to_add)
-        self._update_status_bar()
+            progress.setValue(len(new_files))
+            self.table_model.add_items(items_to_add)
+            self._update_status_bar()
+        finally:
+            self._is_loading = False
 
     # ---------------------------------------------------------
     # Selection & Editing
@@ -429,13 +436,20 @@ class MainWindow(QMainWindow):
             return
 
         saved_count = 0
+        error_items = []
         for item in dirty_items:
             if save_media_item(item):
                 saved_count += 1
+            else:
+                error_items.append((item.file_name, item.error))
 
         self.table_model.notify_all_changed()
         self._update_status_bar()
-        self.status_bar.showMessage(f"Saved {saved_count} modified file(s).", 4000)
+        if error_items:
+            err_msg = "\n".join([f"• {name}: {err}" for name, err in error_items[:5]])
+            QMessageBox.warning(self, "Save Incomplete", f"Saved {saved_count} files.\n\nErrors encountered:\n{err_msg}")
+        else:
+            self.status_bar.showMessage(f"Saved {saved_count} modified file(s).", 4000)
 
     def revert_selected(self):
         items = self._get_selected_items()
@@ -689,4 +703,24 @@ class MainWindow(QMainWindow):
             "<hr>"
             "<p style='color: gray; font-size: 11px;'>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>"
         )
+
+    def closeEvent(self, event):
+        dirty_count = sum(1 for it in self.table_model.items if it.is_dirty)
+        if dirty_count > 0:
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                f"You have {dirty_count} file(s) with unsaved metadata changes.\nDo you want to save them before exiting?",
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save
+            )
+            if reply == QMessageBox.StandardButton.Save:
+                self.save_all()
+                if any(it.is_dirty for it in self.table_model.items):
+                    event.ignore()
+                    return
+            elif reply == QMessageBox.StandardButton.Cancel:
+                event.ignore()
+                return
+        event.accept()
 

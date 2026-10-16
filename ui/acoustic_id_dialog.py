@@ -1,3 +1,4 @@
+import html
 import os
 import threading
 from typing import List, Optional
@@ -14,8 +15,8 @@ from core.audio_fingerprint import (
 )
 
 class AcousticWorkerSignals(QObject):
-    finished_matches = Signal(list)
-    error_occurred = Signal(str)
+    finished_matches = Signal(int, list)
+    error_occurred = Signal(int, str)
 
 class AcousticIdDialog(QDialog):
     def __init__(self, item: MediaItem, parent=None):
@@ -24,6 +25,7 @@ class AcousticIdDialog(QDialog):
         self.matches: List[AudioFingerprintMatch] = []
         self.selected_match: Optional[AudioFingerprintMatch] = None
         self.applied = False
+        self._request_id = 0
 
         self.setWindowTitle("Acoustic Fingerprinting & Audio ID (AcoustID / MusicBrainz)")
         self.resize(750, 480)
@@ -36,7 +38,7 @@ class AcousticIdDialog(QDialog):
         layout.setSpacing(10)
 
         # Header info
-        header = QLabel(f"<b>File:</b> {self.item.file_name}")
+        header = QLabel(f"<b>File:</b> {html.escape(self.item.file_name)}")
         header.setStyleSheet("color: #e2e8f0; font-size: 10pt;")
         layout.addWidget(header)
 
@@ -134,14 +136,18 @@ class AcousticIdDialog(QDialog):
         layout.addLayout(btn_row)
 
     def _start_scan(self):
+        self._request_id += 1
+        req_id = self._request_id
+
         self.progress_bar.setVisible(True)
         self.status_label.setText("Computing Chromaprint audio fingerprint & querying MusicBrainz...")
         self.status_label.setStyleSheet("color: #38bdf8; font-size: 9pt;")
         self.btn_search.setEnabled(False)
 
-        self.signals = AcousticWorkerSignals()
-        self.signals.finished_matches.connect(self._on_matches_ready)
-        self.signals.error_occurred.connect(self._on_scan_error)
+        signals = AcousticWorkerSignals(self)
+        signals.finished_matches.connect(self._on_matches_ready)
+        signals.error_occurred.connect(self._on_scan_error)
+        self.signals = signals
 
         path = self.item.file_path
         fallback_q = self.txt_search.text().strip()
@@ -149,12 +155,12 @@ class AcousticIdDialog(QDialog):
             try:
                 res = identify_audio_file(path, fallback_query=fallback_q)
                 try:
-                    self.signals.finished_matches.emit(res)
+                    signals.finished_matches.emit(req_id, res)
                 except RuntimeError:
                     pass
             except Exception as e:
                 try:
-                    self.signals.error_occurred.emit(str(e))
+                    signals.error_occurred.emit(req_id, str(e))
                 except RuntimeError:
                     pass
 
@@ -166,32 +172,38 @@ class AcousticIdDialog(QDialog):
         if not query:
             return
 
+        self._request_id += 1
+        req_id = self._request_id
+
         self.progress_bar.setVisible(True)
         self.status_label.setText(f"Searching MusicBrainz for '{query}'...")
         self.status_label.setStyleSheet("color: #38bdf8; font-size: 9pt;")
         self.btn_search.setEnabled(False)
 
-        self.signals = AcousticWorkerSignals()
-        self.signals.finished_matches.connect(self._on_matches_ready)
-        self.signals.error_occurred.connect(self._on_scan_error)
+        signals = AcousticWorkerSignals(self)
+        signals.finished_matches.connect(self._on_matches_ready)
+        signals.error_occurred.connect(self._on_scan_error)
+        self.signals = signals
 
         def _mb_search():
             try:
                 res = search_musicbrainz(query)
                 try:
-                    self.signals.finished_matches.emit(res)
+                    signals.finished_matches.emit(req_id, res)
                 except RuntimeError:
                     pass
             except Exception as e:
                 try:
-                    self.signals.error_occurred.emit(str(e))
+                    signals.error_occurred.emit(req_id, str(e))
                 except RuntimeError:
                     pass
 
         t = threading.Thread(target=_mb_search, daemon=True)
         t.start()
 
-    def _on_matches_ready(self, matches: List[AudioFingerprintMatch]):
+    def _on_matches_ready(self, req_id: int, matches: List[AudioFingerprintMatch]):
+        if req_id != self._request_id:
+            return
         self.progress_bar.setVisible(False)
         self.btn_search.setEnabled(True)
         self.matches = matches
@@ -226,8 +238,11 @@ class AcousticIdDialog(QDialog):
         self.table.resizeColumnsToContents()
         self.table.selectRow(0)
 
-    def _on_scan_error(self, err_msg: str):
+    def _on_scan_error(self, req_id: int, err_msg: str):
+        if req_id != self._request_id:
+            return
         self.progress_bar.setVisible(False)
+        self.btn_search.setEnabled(True)
         self.status_label.setText(f"Audio identification error: {err_msg}")
         self.status_label.setStyleSheet("color: #ef4444; font-size: 9pt;")
         QMessageBox.warning(self, "Acoustic ID Error", f"Failed to identify audio:\n{err_msg}")

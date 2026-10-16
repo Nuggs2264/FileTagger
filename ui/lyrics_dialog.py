@@ -12,8 +12,8 @@ from core.media_item import MediaItem
 from core.lyrics_fetcher import fetch_lyrics, save_lrc_file, LyricsResult
 
 class LyricsWorkerSignals(QObject):
-    finished_lyrics = Signal(object)
-    error_occurred = Signal(str)
+    finished_lyrics = Signal(int, object)
+    error_occurred = Signal(int, str)
 
 class LyricsDialog(QDialog):
     def __init__(self, item: MediaItem, parent=None):
@@ -21,6 +21,7 @@ class LyricsDialog(QDialog):
         self.item = item
         self.lyrics_result: Optional[LyricsResult] = None
         self.applied = False
+        self._request_id = 0
 
         self.setWindowTitle("Synchronized Lyrics Downloader (LRCLIB)")
         self.resize(700, 540)
@@ -115,6 +116,9 @@ class LyricsDialog(QDialog):
         layout.addLayout(btn_row)
 
     def _start_fetch(self):
+        self._request_id += 1
+        req_id = self._request_id
+
         title = self.txt_title.text().strip() or self.item.file_name
         artist = self.txt_artist.text().strip()
         album = self.txt_album.text().strip()
@@ -124,28 +128,31 @@ class LyricsDialog(QDialog):
         self.status_label.setStyleSheet("color: #38bdf8; font-size: 9pt;")
         self.btn_search.setEnabled(False)
 
-        self.signals = LyricsWorkerSignals()
-        self.signals.finished_lyrics.connect(self._on_lyrics_ready)
-        self.signals.error_occurred.connect(self._on_fetch_error)
+        signals = LyricsWorkerSignals(self)
+        signals.finished_lyrics.connect(self._on_lyrics_ready)
+        signals.error_occurred.connect(self._on_fetch_error)
+        self.signals = signals
 
         duration = self.item.duration
         def _fetch_target():
             try:
                 res = fetch_lyrics(title, artist, album, duration)
                 try:
-                    self.signals.finished_lyrics.emit(res)
+                    signals.finished_lyrics.emit(req_id, res)
                 except RuntimeError:
                     pass
             except Exception as e:
                 try:
-                    self.signals.error_occurred.emit(str(e))
+                    signals.error_occurred.emit(req_id, str(e))
                 except RuntimeError:
                     pass
 
         t = threading.Thread(target=_fetch_target, daemon=True)
         t.start()
 
-    def _on_lyrics_ready(self, result: Optional[LyricsResult]):
+    def _on_lyrics_ready(self, req_id: int, result: Optional[LyricsResult]):
+        if req_id != self._request_id:
+            return
         self.progress_bar.setVisible(False)
         self.btn_search.setEnabled(True)
         self.lyrics_result = result
@@ -167,7 +174,9 @@ class LyricsDialog(QDialog):
             self.status_label.setStyleSheet("color: #fbbf24; font-size: 9pt;")
             self.tabs.setCurrentIndex(1)
 
-    def _on_fetch_error(self, err_msg: str):
+    def _on_fetch_error(self, req_id: int, err_msg: str):
+        if req_id != self._request_id:
+            return
         self.progress_bar.setVisible(False)
         self.btn_search.setEnabled(True)
         self.status_label.setText(f"Fetch error: {err_msg}")

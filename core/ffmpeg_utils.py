@@ -76,7 +76,9 @@ def get_media_duration_and_resolution(file_path: str) -> Tuple[float, Optional[s
 
 def get_media_technical_and_raw_metadata(file_path: str) -> Tuple[Dict[str, str], Dict[str, str]]:
     """
-    Returns (technical_info_dict, raw_metadata_dict) using FFmpeg.
+    Returns (technical_info_dict, raw_metadata_dict) using a single FFmpeg invocation.
+    Also populates internal keys '_duration_sec' and '_resolution' in tech_info
+    to avoid redundant FFmpeg probes.
     """
     tech_info: Dict[str, str] = {}
     raw_meta: Dict[str, str] = {}
@@ -90,11 +92,10 @@ def get_media_technical_and_raw_metadata(file_path: str) -> Tuple[Dict[str, str]
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
-    # 1. Probe technical streams
     try:
-        cmd_probe = [ffmpeg_exe, "-hide_banner", "-i", file_path]
+        cmd_meta = [ffmpeg_exe, "-hide_banner", "-i", file_path, "-f", "ffmetadata", "-"]
         proc = subprocess.run(
-            cmd_probe,
+            cmd_meta,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -103,16 +104,27 @@ def get_media_technical_and_raw_metadata(file_path: str) -> Tuple[Dict[str, str]
             startupinfo=startupinfo,
             timeout=10
         )
-        err = proc.stderr
+
+        # 1. Parse technical streams, duration, and resolution from stderr
+        err = proc.stderr or ""
+        dur_match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", err)
+        if dur_match:
+            hours = int(dur_match.group(1))
+            minutes = int(dur_match.group(2))
+            seconds = float(dur_match.group(3))
+            tech_info["_duration_sec"] = str(hours * 3600 + minutes * 60 + seconds)
+
+        res_match = re.search(r"Video:.*?,\s*(\d{2,5}x\d{2,5})", err)
+        if res_match:
+            tech_info["_resolution"] = res_match.group(1)
+
         for line in err.splitlines():
             line_str = line.strip()
             if line_str.startswith("Input #0,"):
-                # Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '...':
                 m = re.search(r"Input #0,\s*([^,]+),", line_str)
                 if m:
                     tech_info["Container"] = m.group(1).upper()
             elif line_str.startswith("Duration:"):
-                # Duration: 01:56:58.72, start: 0.000000, bitrate: 700 kb/s
                 m_dur = re.search(r"Duration:\s*([^,]+)", line_str)
                 if m_dur:
                     tech_info["Duration"] = m_dur.group(1)
@@ -126,24 +138,10 @@ def get_media_technical_and_raw_metadata(file_path: str) -> Tuple[Dict[str, str]
                     tech_info["Audio Stream"] = line_str.split("Audio:", 1)[1].strip()
                 elif "Subtitle:" in line_str:
                     tech_info["Subtitle"] = line_str.split("Subtitle:", 1)[1].strip()
-    except Exception:
-        pass
 
-    # 2. Extract ffmetadata
-    try:
-        cmd_meta = [ffmpeg_exe, "-hide_banner", "-i", file_path, "-f", "ffmetadata", "-"]
-        proc_meta = subprocess.run(
-            cmd_meta,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding='utf-8',
-            errors='ignore',
-            startupinfo=startupinfo,
-            timeout=10
-        )
+        # 2. Parse ffmetadata from stdout
         in_header = True
-        for line in proc_meta.stdout.splitlines():
+        for line in (proc.stdout or "").splitlines():
             line_s = line.strip()
             if line_s.startswith(";FFMETADATA"):
                 continue

@@ -27,6 +27,8 @@ class ReplayGainDialog(QDialog):
         self.album_gain: str = ""
         self.album_peak: str = ""
         self.applied = False
+        self._is_cancelled = False
+        self._active_procs: list = []
 
         self.setWindowTitle("ReplayGain / Loudness Normalization Scanner (EBU R128)")
         self.resize(780, 500)
@@ -112,11 +114,12 @@ class ReplayGainDialog(QDialog):
         self.btn_apply.setEnabled(False)
         self._is_cancelled = False
 
-        self.signals = ReplayGainWorkerSignals()
-        self.signals.track_scanned.connect(self._on_track_scanned)
-        self.signals.all_scanned.connect(self._on_all_scanned)
-        self.signals.progress_updated.connect(self._on_progress)
-        self.signals.error_occurred.connect(self._on_error)
+        signals = ReplayGainWorkerSignals(self)
+        signals.track_scanned.connect(self._on_track_scanned)
+        signals.all_scanned.connect(self._on_all_scanned)
+        signals.progress_updated.connect(self._on_progress)
+        signals.error_occurred.connect(self._on_error)
+        self.signals = signals
 
         items_copy = list(self.items)
         scan_album = self.rb_album.isChecked()
@@ -130,21 +133,25 @@ class ReplayGainDialog(QDialog):
                     return
 
                 try:
-                    self.signals.progress_updated.emit(idx + 1, total, item.file_name)
+                    signals.progress_updated.emit(idx + 1, total, item.file_name)
                 except RuntimeError:
                     return
 
                 try:
-                    lufs, true_peak, dur = scan_track_loudness(item.file_path)
+                    lufs, true_peak, dur = scan_track_loudness(item.file_path, self._active_procs)
+                    if self._is_cancelled:
+                        return
                     track_gain, track_peak = format_replaygain_track(lufs, true_peak)
                     track_scans.append((lufs, true_peak, dur))
                     try:
-                        self.signals.track_scanned.emit(idx, item.file_path, lufs, true_peak, track_gain, track_peak)
+                        signals.track_scanned.emit(idx, item.file_path, lufs, true_peak, track_gain, track_peak)
                     except RuntimeError:
                         return
                 except Exception as e:
+                    if self._is_cancelled:
+                        return
                     try:
-                        self.signals.error_occurred.emit(item.file_name, str(e))
+                        signals.error_occurred.emit(item.file_name, str(e))
                     except RuntimeError:
                         return
                     track_scans.append((-18.0, 0.0, 0.0))
@@ -152,12 +159,12 @@ class ReplayGainDialog(QDialog):
             if scan_album and len(track_scans) > 0 and not self._is_cancelled:
                 album_gain, album_peak = format_replaygain_album(track_scans)
                 try:
-                    self.signals.all_scanned.emit(album_gain, album_peak)
+                    signals.all_scanned.emit(album_gain, album_peak)
                 except RuntimeError:
                     return
             elif not self._is_cancelled:
                 try:
-                    self.signals.all_scanned.emit("", "")
+                    signals.all_scanned.emit("", "")
                 except RuntimeError:
                     return
 
@@ -165,10 +172,14 @@ class ReplayGainDialog(QDialog):
         t.start()
 
     def _on_progress(self, current: int, total: int, filename: str):
+        if self._is_cancelled:
+            return
         self.progress_bar.setValue(current - 1)
         self.status_label.setText(f"Scanning ({current}/{total}): {filename}...")
 
     def _on_track_scanned(self, idx: int, path: str, lufs: float, peak_db: float, gain: str, peak: str):
+        if self._is_cancelled:
+            return
         self.track_results[idx] = (gain, peak)
         self.table.setItem(idx, 1, QTableWidgetItem(f"{lufs:.2f} LUFS"))
         self.table.setItem(idx, 2, QTableWidgetItem(f"{peak_db:.2f} dBFS"))
@@ -180,6 +191,8 @@ class ReplayGainDialog(QDialog):
         self.table.setItem(idx, 4, QTableWidgetItem(peak))
 
     def _on_all_scanned(self, album_gain: str, album_peak: str):
+        if self._is_cancelled:
+            return
         self.progress_bar.setValue(len(self.items))
         self.status_label.setText("✓ Loudness analysis complete!")
         self.status_label.setStyleSheet("color: #4ade80; font-size: 9pt; font-weight: bold;")
@@ -200,6 +213,8 @@ class ReplayGainDialog(QDialog):
         self.btn_start.setEnabled(True)
 
     def _on_error(self, filename: str, err: str):
+        if self._is_cancelled:
+            return
         QMessageBox.warning(self, "Scan Warning", f"Could not analyze {filename}:\n{err}")
 
     def _apply_tags(self):
@@ -219,6 +234,18 @@ class ReplayGainDialog(QDialog):
         )
         self.accept()
 
-    def _on_close(self):
+    def _cancel_active_scan(self):
         self._is_cancelled = True
+        for proc in list(self._active_procs):
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
+    def _on_close(self):
+        self._cancel_active_scan()
         self.reject()
+
+    def closeEvent(self, event):
+        self._cancel_active_scan()
+        super().closeEvent(event)

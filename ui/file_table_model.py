@@ -2,6 +2,7 @@ import os
 from typing import List, Any
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
 from core.media_item import MediaItem
+from ui.rename_dialog import sanitize_filename
 
 COLUMNS = [
     ("Mod", 45),
@@ -120,14 +121,25 @@ class FileTableModel(QAbstractTableModel):
         if tag_key == "filename":
             if not str_val:
                 return False
+            # Reject directory separators or relative traversal sequences
+            base_val = os.path.basename(str_val)
+            if base_val != str_val or ".." in str_val:
+                return False
             if not str_val.lower().endswith(item.extension):
                 str_val = f"{str_val}{item.extension}"
+            stem, ext = os.path.splitext(str_val)
+            safe_stem = sanitize_filename(stem)
+            if not safe_stem:
+                return False
+            str_val = f"{safe_stem}{ext}"
             if str_val == item.file_name:
                 return False
 
             old_path = item.file_path
-            dir_name = os.path.dirname(old_path)
-            new_path = os.path.join(dir_name, str_val)
+            dir_name = os.path.abspath(os.path.dirname(old_path))
+            new_path = os.path.abspath(os.path.join(dir_name, str_val))
+            if os.path.dirname(new_path) != dir_name:
+                return False
             try:
                 if os.path.exists(new_path) and new_path.lower() != old_path.lower():
                     return False
