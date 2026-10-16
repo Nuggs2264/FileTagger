@@ -328,20 +328,42 @@ class MainWindow(QMainWindow):
         if getattr(self, "_is_loading", False):
             return
 
+        has_dirs = any(os.path.isdir(p) for p in paths)
+        progress = None
+        if has_dirs or len(paths) > 20:
+            progress = QProgressDialog("Scanning for media files...", "Cancel", 0, 0, self)
+            progress.setWindowTitle("Loading Media")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(200)
+            progress.show()
+            QApplication.processEvents()
+
         all_files: List[str] = []
+        cancelled = False
         for path in paths:
+            if progress and progress.wasCanceled():
+                cancelled = True
+                break
             if os.path.isfile(path):
                 ext = os.path.splitext(path)[1].lower()
                 if ext in SUPPORTED_EXTENSIONS:
                     all_files.append(path)
             elif os.path.isdir(path):
                 for root, _, filenames in os.walk(path):
+                    if progress and progress.wasCanceled():
+                        cancelled = True
+                        break
                     for fname in filenames:
                         ext = os.path.splitext(fname)[1].lower()
                         if ext in SUPPORTED_EXTENSIONS:
                             all_files.append(os.path.join(root, fname))
+                    if progress:
+                        progress.setLabelText(f"Found {len(all_files)} files... Scanning: {os.path.basename(root)}")
+                        QApplication.processEvents()
 
-        if not all_files:
+        if cancelled or not all_files:
+            if progress:
+                progress.close()
             return
 
         # Avoid duplicates
@@ -349,13 +371,20 @@ class MainWindow(QMainWindow):
         new_files = [f for f in all_files if f not in existing_paths]
 
         if not new_files:
+            if progress:
+                progress.close()
             return
 
         self._is_loading = True
         try:
-            progress = QProgressDialog("Reading metadata and covers...", "Cancel", 0, len(new_files), self)
-            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-            progress.setMinimumDuration(200)
+            if progress is None:
+                progress = QProgressDialog("Reading metadata and covers...", "Cancel", 0, len(new_files), self)
+                progress.setWindowTitle("Loading Media")
+                progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+                progress.setMinimumDuration(200)
+                progress.show()
+            else:
+                progress.setRange(0, len(new_files))
 
             items_to_add: List[MediaItem] = []
             for i, fpath in enumerate(new_files):
@@ -372,6 +401,8 @@ class MainWindow(QMainWindow):
             self.table_model.add_items(items_to_add)
             self._update_status_bar()
         finally:
+            if progress:
+                progress.close()
             self._is_loading = False
 
     # ---------------------------------------------------------
