@@ -25,23 +25,31 @@ from ui.music_fetcher_dialog import MusicFetcherDialog
 
 class SaveWorker(QThread):
     progress = Signal(int, int, str)
-    finished_save = Signal(int, list)
+    finished_save = Signal(int, list, bool)
 
     def __init__(self, items: List[MediaItem], parent=None):
         super().__init__(parent)
         self.items = items
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
 
     def run(self):
         saved_count = 0
         error_items = []
         total = len(self.items)
+        cancelled = False
         for idx, item in enumerate(self.items, 1):
+            if self._is_cancelled:
+                cancelled = True
+                break
             self.progress.emit(idx, total, item.file_name)
             if save_media_item(item):
                 saved_count += 1
             else:
                 error_items.append((item.file_name, item.error))
-        self.finished_save.emit(saved_count, error_items)
+        self.finished_save.emit(saved_count, error_items, cancelled)
 
 class FileSearchFilterProxyModel(QSortFilterProxyModel):
     """Filters table rows across multiple columns (Filename, Title, Artist, Album)."""
@@ -431,35 +439,40 @@ class MainWindow(QMainWindow):
             return
 
         self._is_saving = True
+        total_count = len(dirty_items)
         try:
             progress = QProgressDialog(
                 "Saving metadata and artwork to disk...",
-                None,
+                "Cancel",
                 0,
-                0,
+                total_count,
                 self
             )
             progress.setWindowTitle("Saving Files")
             progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-            progress.setCancelButton(None)
             progress.setMinimumDuration(0)
-            progress.setMinimumWidth(420)
+            progress.setMinimumWidth(440)
+            progress.setValue(0)
             progress.show()
 
             loop = QEventLoop(self)
-            result_holder = {"saved": 0, "errors": []}
+            result_holder = {"saved": 0, "errors": [], "cancelled": False}
 
             worker = SaveWorker(dirty_items, self)
+            progress.canceled.connect(worker.cancel)
 
             def _on_progress(idx: int, total: int, fname: str):
+                progress.setValue(idx - 1)
                 progress.setLabelText(
                     f"Saving ({idx}/{total}): {fname}\n"
-                    "Please wait — embedding cover art into large video files may take a moment..."
+                    "Please wait — rewriting media files may take a moment..."
                 )
 
-            def _on_done(saved_count: int, error_items: list):
+            def _on_done(saved_count: int, error_items: list, was_cancelled: bool):
+                progress.setValue(total_count)
                 result_holder["saved"] = saved_count
                 result_holder["errors"] = error_items
+                result_holder["cancelled"] = was_cancelled
                 loop.quit()
 
             worker.progress.connect(_on_progress)
@@ -471,6 +484,7 @@ class MainWindow(QMainWindow):
 
             saved_count = result_holder["saved"]
             error_items = result_holder["errors"]
+            was_cancelled = result_holder["cancelled"]
 
             self.table_model.notify_all_changed()
             self._update_status_bar()
@@ -478,6 +492,8 @@ class MainWindow(QMainWindow):
             if error_items:
                 err_msg = "\n".join([f"• {name}: {err}" for name, err in error_items[:5]])
                 QMessageBox.warning(self, "Save Incomplete", f"Saved {saved_count} files.\n\nErrors encountered:\n{err_msg}")
+            elif was_cancelled:
+                self.status_bar.showMessage(f"Save cancelled by user. Saved {saved_count} of {total_count} file(s).", 5000)
             else:
                 self.status_bar.showMessage(f"Successfully saved {saved_count} file(s).", 4000)
         finally:
