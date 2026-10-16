@@ -211,8 +211,8 @@ class OnlineFetcherDialog(QDialog):
         self.lbl_poster.setMinimumSize(180, 240)
         self.lbl_poster.setStyleSheet("""
             QLabel {
-                background-color: #121216;
-                border: 1px solid #282836;
+                background-color: #18181f;
+                border: 1px solid #262632;
                 border-radius: 6px;
                 color: #64748b;
             }
@@ -223,7 +223,7 @@ class OnlineFetcherDialog(QDialog):
         self.txt_details = QTextEdit()
         self.txt_details.setReadOnly(True)
         self.txt_details.setMaximumHeight(140)
-        self.txt_details.setStyleSheet("background-color: #141419; border: 1px solid #282836;")
+        self.txt_details.setStyleSheet("background-color: #18181f; border: 1px solid #262632; border-radius: 6px; font-size: 9pt;")
         right_layout.addWidget(self.txt_details)
 
         splitter.addWidget(right_widget)

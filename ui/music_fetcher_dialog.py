@@ -146,7 +146,7 @@ class MusicFetcherDialog(QDialog):
         self.art_preview.setMaximumSize(320, 320)
         self.art_preview.setStyleSheet("""
             QLabel {
-                background-color: #131317;
+                background-color: #18181f;
                 border: 2px dashed #2d2d3d;
                 border-radius: 8px;
                 color: #64748b;
@@ -164,7 +164,7 @@ class MusicFetcherDialog(QDialog):
         # Metadata Card
         self.txt_details = QTextEdit()
         self.txt_details.setReadOnly(True)
-        self.txt_details.setStyleSheet("background-color: #1a1a24; border: 1px solid #2d2d3d; border-radius: 6px; font-size: 9pt;")
+        self.txt_details.setStyleSheet("background-color: #18181f; border: 1px solid #262632; border-radius: 6px; font-size: 9pt;")
         right_layout.addWidget(self.txt_details, 1)
 
         splitter.addWidget(right_widget)

@@ -24,7 +24,7 @@ class CoverDropLabel(QLabel):
         self.setText("No Cover Art\n\n(Drop image here or click 'Choose Image')")
         self.setStyleSheet("""
             QLabel {
-                background-color: #131317;
+                background-color: #18181f;
                 border: 2px dashed #2d2d3d;
                 border-radius: 8px;
                 color: #64748b;

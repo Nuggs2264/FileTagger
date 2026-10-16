@@ -49,7 +49,7 @@ class FrameGrabberDialog(QDialog):
 
         # Frame preview area
         self.preview_container = QFrame()
-        self.preview_container.setStyleSheet("background-color: #0d0d10; border-radius: 8px; border: 1px solid #272733;")
+        self.preview_container.setStyleSheet("background-color: #121216; border-radius: 8px; border: 1px solid #262632;")
         preview_layout = QVBoxLayout(self.preview_container)
         preview_layout.setContentsMargins(4, 4, 4, 4)
 
