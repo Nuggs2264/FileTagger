@@ -1,5 +1,6 @@
 import os
 import re
+import tempfile
 from dataclasses import dataclass
 from typing import Optional, Tuple
 import requests
@@ -108,8 +109,23 @@ def save_lrc_file(audio_file_path: str, lyrics_content: str) -> str:
     Example: 'C:/Music/Track.mp3' -> 'C:/Music/Track.lrc'
     Returns the path of the saved .lrc file.
     """
-    base_path, _ = os.path.splitext(audio_file_path)
+    abs_audio = os.path.abspath(audio_file_path)
+    if os.path.islink(abs_audio):
+        raise ValueError("Refusing to write lyrics next to a symbolic link.")
+    base_path, _ = os.path.splitext(abs_audio)
     lrc_path = f"{base_path}.lrc"
-    with open(lrc_path, "w", encoding="utf-8") as f:
-        f.write(lyrics_content)
+    parent_dir = os.path.dirname(lrc_path)
+
+    fd, tmp_path = tempfile.mkstemp(prefix=".lrc_tmp_", suffix=".lrc", dir=parent_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(lyrics_content)
+        os.replace(tmp_path, lrc_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        raise
     return lrc_path

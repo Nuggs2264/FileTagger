@@ -199,6 +199,28 @@ def read_media_item(file_path: str) -> MediaItem:
     item.mark_saved()
     return item
 
+def _atomic_file_save(file_path: str, save_func) -> None:
+    """Safely saves modifications by copying to a sibling temporary file,
+
+    applying changes, and atomically replacing the original file upon success.
+    """
+    abs_path = os.path.abspath(file_path)
+    parent_dir = os.path.dirname(abs_path)
+    ext = os.path.splitext(abs_path)[1]
+    fd, tmp_path = tempfile.mkstemp(prefix=".filetagger_tmp_", suffix=ext, dir=parent_dir)
+    os.close(fd)
+    try:
+        shutil.copy2(abs_path, tmp_path)
+        save_func(tmp_path)
+        os.replace(tmp_path, abs_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        raise
+
 def save_media_item(item: MediaItem) -> bool:
     """Saves updated metadata tags and cover art back to the media file."""
     ext = item.extension
@@ -208,16 +230,25 @@ def save_media_item(item: MediaItem) -> bool:
             item.cover_bytes = norm_bytes
             item.cover_mime = mime
 
-        if ext in {".mp4", ".m4a", ".m4v", ".mov"}:
-            _save_mp4(item)
-        elif ext == ".mp3":
-            _save_mp3(item)
-        elif ext == ".flac":
-            _save_flac(item)
-        elif ext in {".ogg", ".opus"}:
-            _save_ogg(item)
-        elif ext == ".wav":
-            _save_wav(item)
+        def run_mutagen_save(temp_path: str):
+            orig_path = item.file_path
+            item.file_path = temp_path
+            try:
+                if ext in {".mp4", ".m4a", ".m4v", ".mov"}:
+                    _save_mp4(item)
+                elif ext == ".mp3":
+                    _save_mp3(item)
+                elif ext == ".flac":
+                    _save_flac(item)
+                elif ext in {".ogg", ".opus"}:
+                    _save_ogg(item)
+                elif ext == ".wav":
+                    _save_wav(item)
+            finally:
+                item.file_path = orig_path
+
+        if ext in {".mp4", ".m4a", ".m4v", ".mov", ".mp3", ".flac", ".ogg", ".opus", ".wav"}:
+            _atomic_file_save(item.file_path, run_mutagen_save)
         elif ext in {".mkv", ".webm"}:
             _save_mkv(item)
         else:
