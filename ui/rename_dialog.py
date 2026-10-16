@@ -130,6 +130,11 @@ class RenameDialog(QDialog):
             new_item = QTableWidgetItem(new_name)
             new_item.setFlags(new_item.flags() ^ Qt.ItemFlag.ItemIsEditable)
 
+            dir_path = os.path.abspath(os.path.dirname(item.file_path))
+            new_path = os.path.abspath(os.path.join(dir_path, os.path.basename(new_name)))
+            if os.name == "nt" and len(new_path) >= 260:
+                new_item.setToolTip(f"⚠️ Warning: Target path exceeds Windows MAX_PATH limit ({len(new_path)}/260 chars)")
+
             self.table.setItem(i, 0, cur_item)
             self.table.setItem(i, 1, new_item)
 
@@ -147,6 +152,10 @@ class RenameDialog(QDialog):
             new_path = os.path.abspath(os.path.join(dir_path, os.path.basename(new_name)))
             if os.path.dirname(new_path) != dir_path:
                 errors.append(f"Invalid target path rejected: {new_name}")
+                continue
+
+            if os.name == "nt" and len(new_path) >= 260:
+                errors.append(f"Path exceeds Windows MAX_PATH (260 characters): {new_name}")
                 continue
 
             if os.path.exists(new_path) and new_path.lower() != item.file_path.lower():
