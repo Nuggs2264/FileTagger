@@ -50,6 +50,19 @@ MP4_ATOM_MAP = {
 }
 REVERSE_MP4_ATOM_MAP = {v: k for k, v in MP4_ATOM_MAP.items()}
 
+MP4_TEXT_ATOMS = {
+    "purl", "egid", "\xa9nam", "\xa9alb", "\xa9ART", "aART",
+    "\xa9wrt", "\xa9day", "\xa9cmt", "desc", "purd", "\xa9grp",
+    "\xa9gen", "\xa9lyr", "catg", "keyw", "\xa9too", "cprt",
+    "soal", "soaa", "soar", "sonm", "soco", "sosn", "tvsh",
+}
+MP4_INT_ATOMS = {
+    "plID", "cnID", "geID", "atID", "sfID", "cmID", "akID",
+    "tvsn", "tves", "tmpo", "\xa9mvi", "\xa9mvc", "shwm",
+    "stik", "hdvd", "rtng",
+}
+MP4_BOOL_ATOMS = {"cpil", "pgap", "pcst"}
+
 ID3_FRAME_MAP = {
     "TCOP": "copyright",
     "TPUB": "publisher",
@@ -342,7 +355,7 @@ def _read_mp4(item: MediaItem):
         item.tags["album"] = get_first("\xa9alb")
         item.tags["album_artist"] = get_first("aART")
         item.tags["year"] = get_first("\xa9day")
-        item.tags["genre"] = get_first("\xa9gen")
+        item.tags["genre"] = get_first("\xa9gen") or get_first("gnre")
         item.tags["comment"] = get_first("\xa9cmt")
         item.tags["composer"] = get_first("\xa9wrt")
 
@@ -368,7 +381,7 @@ def _read_mp4(item: MediaItem):
         # Read all other extended atoms
         standard_mp4_atoms = {
             "\xa9nam", "\xa9ART", "\xa9alb", "aART", "\xa9day", "\xa9gen",
-            "\xa9cmt", "\xa9wrt", "trkn", "disk", "covr"
+            "gnre", "\xa9cmt", "\xa9wrt", "trkn", "disk", "covr"
         }
         for atom_key, val_list in audio.tags.items():
             if atom_key in standard_mp4_atoms:
@@ -406,6 +419,8 @@ def _save_mp4(item: MediaItem):
     tags["aART"] = [item.tags.get("album_artist", "")]
     tags["\xa9day"] = [item.tags.get("year", "")]
     tags["\xa9gen"] = [item.tags.get("genre", "")]
+    if "gnre" in tags:
+        del tags["gnre"]
     tags["\xa9cmt"] = [item.tags.get("comment", "")]
     tags["\xa9wrt"] = [item.tags.get("composer", "")]
 
@@ -445,20 +460,27 @@ def _save_mp4(item: MediaItem):
             if freeform_key in tags:
                 del tags[freeform_key]
 
-    # Write current extra tags
+    # Write current extra tags with strict MP4 atom type conversion
+    ignored_container_keys = {"major_brand", "minor_version", "compatible_brands"}
     for k, v in item.extra_tags.items():
-        if not v:
+        if v is None or str(v) == "" or k in ignored_container_keys:
             continue
-        if k in REVERSE_MP4_ATOM_MAP:
-            atom = REVERSE_MP4_ATOM_MAP[k]
-            tags[atom] = [v]
-        elif len(k) == 4:
-            # 4-character standard atom
-            tags[k] = [v]
+        val_s = str(v).strip()
+        atom = REVERSE_MP4_ATOM_MAP.get(k, k)
+
+        if atom in MP4_TEXT_ATOMS:
+            tags[atom] = [val_s]
+        elif atom in MP4_INT_ATOMS:
+            try:
+                tags[atom] = [int(float(val_s))]
+            except (ValueError, TypeError):
+                pass
+        elif atom in MP4_BOOL_ATOMS:
+            tags[atom] = val_s.lower() in ("true", "1", "yes")
         else:
-            # Custom iTunes freeform atom
+            # Custom or extended tag -> iTunes freeform atom
             freeform_key = f"----:com.apple.iTunes:{k}"
-            tags[freeform_key] = [v.encode("utf-8")]
+            tags[freeform_key] = [MP4FreeForm(val_s.encode("utf-8"))]
 
     # Cover
     if item.cover_modified:
