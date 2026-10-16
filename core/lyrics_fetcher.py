@@ -56,8 +56,14 @@ def fetch_lyrics(
 
     try:
         r = requests.get(LRCLIB_GET_URL, params=params, headers=headers, timeout=timeout)
+        if r.status_code == 429:
+            retry_after = r.headers.get("Retry-After", "")
+            hint = f" (retry after {retry_after}s)" if retry_after else ""
+            raise RuntimeError(f"LRCLIB rate limit reached (429){hint}. Please wait a moment.")
         if r.status_code == 200:
             return _parse_lrclib_response(r.json())
+    except RuntimeError:
+        raise
     except Exception:
         pass
 
@@ -69,8 +75,14 @@ def fetch_lyrics(
 
     try:
         r = requests.get(LRCLIB_GET_URL, params=relaxed_params, headers=headers, timeout=timeout)
+        if r.status_code == 429:
+            retry_after = r.headers.get("Retry-After", "")
+            hint = f" (retry after {retry_after}s)" if retry_after else ""
+            raise RuntimeError(f"LRCLIB rate limit reached (429){hint}. Please wait a moment.")
         if r.status_code == 200:
             return _parse_lrclib_response(r.json())
+    except RuntimeError:
+        raise
     except Exception:
         pass
 
@@ -80,8 +92,14 @@ def fetch_lyrics(
         r_params = {"artist_name": parts[0].strip(), "track_name": clean_title_for_search(parts[1])}
         try:
             r = requests.get(LRCLIB_GET_URL, params=r_params, headers=headers, timeout=timeout)
+            if r.status_code == 429:
+                retry_after = r.headers.get("Retry-After", "")
+                hint = f" (retry after {retry_after}s)" if retry_after else ""
+                raise RuntimeError(f"LRCLIB rate limit reached (429){hint}. Please wait a moment.")
             if r.status_code == 200:
                 return _parse_lrclib_response(r.json())
+        except RuntimeError:
+            raise
         except Exception:
             pass
 

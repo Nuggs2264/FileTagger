@@ -143,8 +143,14 @@ def lookup_acoustid(
 
     try:
         resp = requests.get(url, params=params, headers=headers, timeout=12)
+        if resp.status_code == 429:
+            retry_after = resp.headers.get("Retry-After", "")
+            hint = f" (retry after {retry_after}s)" if retry_after else ""
+            raise RuntimeError(f"AcoustID rate limit reached (429){hint}. Please wait a moment.")
         resp.raise_for_status()
         data = resp.json()
+    except RuntimeError:
+        raise
     except Exception as e:
         raise RuntimeError(f"AcoustID lookup failed: {e}")
 

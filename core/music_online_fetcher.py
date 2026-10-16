@@ -45,8 +45,14 @@ def search_itunes(query: str, limit: int = 15) -> List[MusicSearchResult]:
 
     try:
         r = requests.get(url, params=params, headers=headers, timeout=10)
+        if r.status_code == 429:
+            retry_after = r.headers.get("Retry-After", "")
+            hint = f" (retry after {retry_after}s)" if retry_after else ""
+            raise RuntimeError(f"iTunes / Apple Music rate limit reached (429){hint}. Please wait a moment.")
         r.raise_for_status()
         data = r.json()
+    except RuntimeError:
+        raise
     except Exception:
         return []
 
@@ -87,8 +93,14 @@ def search_deezer(query: str, limit: int = 15) -> List[MusicSearchResult]:
 
     try:
         r = requests.get(url, params=params, headers=headers, timeout=10)
+        if r.status_code == 429:
+            retry_after = r.headers.get("Retry-After", "")
+            hint = f" (retry after {retry_after}s)" if retry_after else ""
+            raise RuntimeError(f"Deezer rate limit reached (429){hint}. Please wait a moment.")
         r.raise_for_status()
         data = r.json()
+    except RuntimeError:
+        raise
     except Exception:
         return []
 
@@ -125,8 +137,14 @@ def search_musicbrainz_coverart(query: str, limit: int = 15) -> List[MusicSearch
 
     try:
         r = requests.get(url, params=params, headers=headers, timeout=10)
+        if r.status_code in (429, 503):
+            retry_after = r.headers.get("Retry-After", "")
+            hint = f" (retry after {retry_after}s)" if retry_after else ""
+            raise RuntimeError(f"MusicBrainz rate limit reached ({r.status_code}){hint}. Please wait a moment.")
         r.raise_for_status()
         data = r.json()
+    except RuntimeError:
+        raise
     except Exception:
         return []
 
@@ -180,8 +198,14 @@ def search_discogs(query: str, token: str = "", limit: int = 15) -> List[MusicSe
 
     try:
         r = requests.get(url, params=params, headers=headers, timeout=10)
+        if r.status_code == 429:
+            retry_after = r.headers.get("Retry-After", "")
+            hint = f" (retry after {retry_after}s)" if retry_after else ""
+            raise RuntimeError(f"Discogs rate limit reached (429){hint}. Please wait a moment.")
         r.raise_for_status()
         data = r.json()
+    except RuntimeError:
+        raise
     except Exception:
         return []
 
@@ -222,21 +246,33 @@ def search_all_music_sources(query: str, discogs_token: str = "") -> List[MusicS
     all_results: List[MusicSearchResult] = []
     
     # 1. iTunes (highest quality artwork and metadata)
-    itunes_res = search_itunes(query, limit=10)
-    all_results.extend(itunes_res)
+    try:
+        itunes_res = search_itunes(query, limit=10)
+        all_results.extend(itunes_res)
+    except Exception:
+        pass
 
     # 2. Deezer
-    deezer_res = search_deezer(query, limit=10)
-    all_results.extend(deezer_res)
+    try:
+        deezer_res = search_deezer(query, limit=10)
+        all_results.extend(deezer_res)
+    except Exception:
+        pass
 
     # 3. MusicBrainz
-    mb_res = search_musicbrainz_coverart(query, limit=8)
-    all_results.extend(mb_res)
+    try:
+        mb_res = search_musicbrainz_coverart(query, limit=8)
+        all_results.extend(mb_res)
+    except Exception:
+        pass
 
     # 4. Discogs (if token provided or desired)
     if discogs_token:
-        discogs_res = search_discogs(query, token=discogs_token, limit=8)
-        all_results.extend(discogs_res)
+        try:
+            discogs_res = search_discogs(query, token=discogs_token, limit=8)
+            all_results.extend(discogs_res)
+        except Exception:
+            pass
 
     return all_results
 

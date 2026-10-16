@@ -181,6 +181,12 @@ def search_tmdb(query: str, api_key: str) -> List[SearchResult]:
     except urllib.error.HTTPError as he:
         if he.code == 401:
             raise RuntimeError("Invalid TMDb API Key (401 Unauthorized). Please check your key in the settings.")
+        elif he.code == 429:
+            retry_after = he.headers.get("Retry-After", "") if hasattr(he, "headers") else ""
+            hint = f" (retry after {retry_after}s)" if retry_after else ""
+            raise RuntimeError(f"TMDb rate limit exceeded (429 Too Many Requests){hint}. Please wait a moment.")
+        elif he.code == 503:
+            raise RuntimeError("TMDb service temporarily unavailable (503). Please try again shortly.")
         raise RuntimeError(f"TMDb HTTP error {he.code}: {he.reason}")
     except Exception as e:
         clean_key = api_key.strip()
