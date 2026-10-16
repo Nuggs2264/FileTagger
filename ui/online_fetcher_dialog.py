@@ -15,6 +15,7 @@ from core.online_fetcher import (
     clean_search_query
 )
 from core.tagger import normalize_cover_image
+from core.secure_storage import encrypt_secret, decrypt_secret
 
 class SearchWorker(QThread):
     results_ready = Signal(list)
@@ -135,7 +136,7 @@ class OnlineFetcherDialog(QDialog):
 
         self.tmdb_row = QHBoxLayout()
         self.tmdb_row.addWidget(QLabel("TMDb API Key:"))
-        saved_key = str(self.settings.value("tmdb_api_key", "")).strip()
+        saved_key = decrypt_secret(str(self.settings.value("tmdb_api_key", "")).strip())
         self.txt_tmdb_key = QLineEdit(saved_key)
         self.txt_tmdb_key.setEchoMode(QLineEdit.EchoMode.PasswordEchoOnEdit)
         self.txt_tmdb_key.setPlaceholderText("Paste your 32-character TMDb v3 API Key...")
@@ -285,7 +286,7 @@ class OnlineFetcherDialog(QDialog):
 
     def _on_tmdb_key_changed(self, text: str):
         key = text.strip()
-        self.settings.setValue("tmdb_api_key", key)
+        self.settings.setValue("tmdb_api_key", encrypt_secret(key))
         if key:
             self.lbl_key_status.setText("✅ Saved")
             self.lbl_key_status.setStyleSheet("color: #4ade80; font-weight: bold; margin-left: 4px;")
@@ -294,7 +295,7 @@ class OnlineFetcherDialog(QDialog):
 
     def _save_tmdb_key(self):
         key = self.txt_tmdb_key.text().strip()
-        self.settings.setValue("tmdb_api_key", key)
+        self.settings.setValue("tmdb_api_key", encrypt_secret(key))
         if key:
             self.lbl_key_status.setText("✅ Saved!")
             self.lbl_key_status.setStyleSheet("color: #4ade80; font-weight: bold; margin-left: 4px;")

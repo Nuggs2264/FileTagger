@@ -16,6 +16,7 @@ from core.music_online_fetcher import (
     download_music_image_bytes, clean_query_text
 )
 from core.tagger import normalize_cover_image
+from core.secure_storage import encrypt_secret, decrypt_secret
 
 class MusicSearchSignals(QObject):
     results_ready = Signal(int, list)
@@ -83,10 +84,11 @@ class MusicFetcherDialog(QDialog):
         # Optional Discogs Token Row (visible when Discogs is selected)
         self.discogs_row = QHBoxLayout()
         self.discogs_row.addWidget(QLabel("Discogs Personal Token:"))
-        self.txt_discogs_token = QLineEdit(self.settings.value("discogs_token", ""))
+        saved_token = decrypt_secret(str(self.settings.value("discogs_token", "")).strip())
+        self.txt_discogs_token = QLineEdit(saved_token)
         self.txt_discogs_token.setEchoMode(QLineEdit.EchoMode.PasswordEchoOnEdit)
         self.txt_discogs_token.setPlaceholderText("Enter Discogs Personal Access Token (from discogs.com/settings/developers)...")
-        self.txt_discogs_token.textChanged.connect(lambda t: self.settings.setValue("discogs_token", t))
+        self.txt_discogs_token.textChanged.connect(lambda t: self.settings.setValue("discogs_token", encrypt_secret(t.strip())))
         self.discogs_row.addWidget(self.txt_discogs_token, 1)
         self.discogs_container = QFrame()
         self.discogs_container.setLayout(self.discogs_row)
