@@ -513,11 +513,38 @@ class MainWindow(QMainWindow):
         rows = self._get_selected_source_rows()
         if not rows:
             return
+        dirty_count = sum(
+            1 for r in rows
+            if 0 <= r < len(self.table_model.items) and self.table_model.items[r].is_dirty
+        )
+        if dirty_count > 0:
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                f"{dirty_count} selected file(s) have unsaved metadata changes.\n\nRemove them from the list anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
         self.table_model.remove_rows(rows)
         self._on_selection_changed()
         self._update_status_bar()
 
     def clear_all(self):
+        if not self.table_model.items:
+            return
+        dirty_count = sum(1 for it in self.table_model.items if it.is_dirty)
+        if dirty_count > 0:
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                f"{dirty_count} file(s) in the list have unsaved metadata changes.\n\nClear the entire list without saving?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
         self.table_model.clear()
         self._on_selection_changed()
         self._update_status_bar()
