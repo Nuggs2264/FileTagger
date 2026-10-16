@@ -85,7 +85,7 @@ class LyricsDialog(QDialog):
         layout.addWidget(self.tabs, 1)
 
         # Storage Options Group
-        opts_group = QGroupBox("Save & Storage Options")
+        opts_group = QGroupBox("Save && Storage Options")
         opts_layout = QHBoxLayout(opts_group)
         opts_layout.setSpacing(14)
 

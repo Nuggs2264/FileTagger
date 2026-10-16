@@ -246,7 +246,7 @@ class MainWindow(QMainWindow):
         # --- Audio Superpowers Menu ---
         audio_menu = menu_bar.addMenu("&Audio")
 
-        self.act_music_fetch = QAction("🎨 Fetch Album Art & Tags (iTunes / Deezer / Discogs)...", self)
+        self.act_music_fetch = QAction("🎨 Fetch Album Art && Tags (iTunes / Deezer / Discogs)...", self)
         self.act_music_fetch.setShortcut(QKeySequence("Ctrl+Shift+F"))
         self.act_music_fetch.triggered.connect(self.open_music_fetcher)
         audio_menu.addAction(self.act_music_fetch)

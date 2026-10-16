@@ -203,7 +203,7 @@ class OnlineFetcherDialog(QDialog):
         right_layout.setContentsMargins(6, 0, 0, 0)
         right_layout.setSpacing(8)
 
-        right_layout.addWidget(QLabel("Poster & Metadata Preview:"))
+        right_layout.addWidget(QLabel("Poster && Metadata Preview:"))
 
         # Poster image box
         self.lbl_poster = QLabel("No Poster Selected")
