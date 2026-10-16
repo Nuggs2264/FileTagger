@@ -39,6 +39,7 @@ class AcousticIdDialog(QDialog):
 
         # Header info
         header = QLabel(f"<b>File:</b> {html.escape(self.item.file_name)}")
+        header.setToolTip(f"Full Path:\n{self.item.file_path}")
         header.setStyleSheet("color: #e2e8f0; font-size: 10pt;")
         layout.addWidget(header)
 

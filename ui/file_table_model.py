@@ -103,6 +103,22 @@ class FileTableModel(QAbstractTableModel):
                 from PySide6.QtGui import QColor
                 return QColor("#10b981")  # Green for has cover
 
+        elif role == Qt.ItemDataRole.ToolTipRole:
+            if col == 0:
+                return "Modified (Unsaved changes)" if item.is_dirty else "Saved"
+            elif col == 1:
+                return f"Filename: {item.file_name}\nFull Path: {item.file_path}"
+            elif col == 10:
+                if item.cover_bytes:
+                    mime = item.cover_mime or "image"
+                    return f"Cover embedded: {len(item.cover_bytes) // 1024} KB ({mime})"
+                return "No cover embedded"
+            elif col == 11:
+                return item.file_path
+            else:
+                val = self.data(index, Qt.ItemDataRole.DisplayRole)
+                return str(val) if val else None
+
         return None
 
     def setData(self, index: QModelIndex, value: Any, role: int = Qt.ItemDataRole.EditRole) -> bool:
