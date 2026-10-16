@@ -17,9 +17,19 @@ from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
 from mutagen.oggvorbis import OggVorbis
 from mutagen.oggopus import OggOpus
 from mutagen.wave import WAVE
+import mutagen._util as _mutagen_util
 from PIL import Image
 
 Image.MAX_IMAGE_PIXELS = 36_000_000  # Cap at 36 MP (e.g., 6000x6000) to prevent decompression bombs
+
+# Increase Mutagen's internal file-shift buffer from 1 MB to 64 MB so rewriting
+# multi-gigabyte MP4 video files with front-loaded 'moov' headers is significantly faster.
+_FAST_IO_BUFFER = 64 * 1024 * 1024
+_mutagen_util._DEFAULT_BUFFER_SIZE = _FAST_IO_BUFFER
+for _fn_name in ("insert_bytes", "delete_bytes", "resize_file", "move_bytes"):
+    _fn = getattr(_mutagen_util, _fn_name, None)
+    if _fn and getattr(_fn, "__defaults__", None):
+        _fn.__defaults__ = (_FAST_IO_BUFFER,)
 
 from core.media_item import MediaItem, STANDARD_TAG_KEYS
 from core.ffmpeg_utils import (
@@ -491,7 +501,9 @@ def _save_mp4(item: MediaItem):
         elif "covr" in tags:
             del tags["covr"]
 
-    audio.save()
+    # Cap MP4 'free' atom padding at 64 KB (instead of Mutagen's default 0.1%-1% of file size,
+    # which adds tens of megabytes of zero-padding to multi-GB movie files).
+    audio.save(padding=lambda info: info.padding if 0 <= info.padding <= 524288 else 65536)
 
 # -------------------------------------------------------------
 # FLAC Handler

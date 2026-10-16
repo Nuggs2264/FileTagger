@@ -2,7 +2,7 @@ import os
 import re
 from typing import List, Set
 
-from PySide6.QtCore import Qt, QSortFilterProxyModel, QRegularExpression
+from PySide6.QtCore import Qt, QSortFilterProxyModel, QRegularExpression, QThread, Signal, QEventLoop
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTableView, QToolBar, QMenuBar, QMenu, QStatusBar,
@@ -22,6 +22,26 @@ from ui.acoustic_id_dialog import AcousticIdDialog
 from ui.lyrics_dialog import LyricsDialog
 from ui.replay_gain_dialog import ReplayGainDialog
 from ui.music_fetcher_dialog import MusicFetcherDialog
+
+class SaveWorker(QThread):
+    progress = Signal(int, int, str)
+    finished_save = Signal(int, list)
+
+    def __init__(self, items: List[MediaItem], parent=None):
+        super().__init__(parent)
+        self.items = items
+
+    def run(self):
+        saved_count = 0
+        error_items = []
+        total = len(self.items)
+        for idx, item in enumerate(self.items, 1):
+            self.progress.emit(idx, total, item.file_name)
+            if save_media_item(item):
+                saved_count += 1
+            else:
+                error_items.append((item.file_name, item.error))
+        self.finished_save.emit(saved_count, error_items)
 
 class FileSearchFilterProxyModel(QSortFilterProxyModel):
     """Filters table rows across multiple columns (Filename, Title, Artist, Album)."""
@@ -406,50 +426,79 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------
     # Saving & Reverting
     # ---------------------------------------------------------
+    def _save_items_in_background(self, dirty_items: List[MediaItem]):
+        if getattr(self, "_is_saving", False) or not dirty_items:
+            return
+
+        self._is_saving = True
+        try:
+            progress = QProgressDialog(
+                "Saving metadata and artwork to disk...",
+                None,
+                0,
+                0,
+                self
+            )
+            progress.setWindowTitle("Saving Files")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setCancelButton(None)
+            progress.setMinimumDuration(0)
+            progress.setMinimumWidth(420)
+            progress.show()
+
+            loop = QEventLoop(self)
+            result_holder = {"saved": 0, "errors": []}
+
+            worker = SaveWorker(dirty_items, self)
+
+            def _on_progress(idx: int, total: int, fname: str):
+                progress.setLabelText(
+                    f"Saving ({idx}/{total}): {fname}\n"
+                    "Please wait — embedding cover art into large video files may take a moment..."
+                )
+
+            def _on_done(saved_count: int, error_items: list):
+                result_holder["saved"] = saved_count
+                result_holder["errors"] = error_items
+                loop.quit()
+
+            worker.progress.connect(_on_progress)
+            worker.finished_save.connect(_on_done)
+            worker.start()
+            loop.exec()
+            worker.wait()
+            progress.close()
+
+            saved_count = result_holder["saved"]
+            error_items = result_holder["errors"]
+
+            self.table_model.notify_all_changed()
+            self._update_status_bar()
+
+            if error_items:
+                err_msg = "\n".join([f"• {name}: {err}" for name, err in error_items[:5]])
+                QMessageBox.warning(self, "Save Incomplete", f"Saved {saved_count} files.\n\nErrors encountered:\n{err_msg}")
+            else:
+                self.status_bar.showMessage(f"Successfully saved {saved_count} file(s).", 4000)
+        finally:
+            self._is_saving = False
+
     def save_selected(self):
         items = self._get_selected_items()
         if not items:
             return
-
-        saved_count = 0
-        error_items = []
-        for item in items:
-            if item.is_dirty:
-                if save_media_item(item):
-                    saved_count += 1
-                else:
-                    error_items.append((item.file_name, item.error))
-
-        self.table_model.notify_all_changed()
-        self._update_status_bar()
-
-        if error_items:
-            err_msg = "\n".join([f"• {name}: {err}" for name, err in error_items[:5]])
-            QMessageBox.warning(self, "Save Incomplete", f"Saved {saved_count} files.\n\nErrors encountered:\n{err_msg}")
-        else:
-            self.status_bar.showMessage(f"Successfully saved {saved_count} file(s).", 4000)
+        dirty_items = [it for it in items if it.is_dirty]
+        if not dirty_items:
+            self.status_bar.showMessage("Selected file(s) have no unsaved changes.", 3000)
+            return
+        self._save_items_in_background(dirty_items)
 
     def save_all(self):
         dirty_items = [it for it in self.table_model.items if it.is_dirty]
         if not dirty_items:
             QMessageBox.information(self, "No Changes", "There are no modified files to save.")
             return
-
-        saved_count = 0
-        error_items = []
-        for item in dirty_items:
-            if save_media_item(item):
-                saved_count += 1
-            else:
-                error_items.append((item.file_name, item.error))
-
-        self.table_model.notify_all_changed()
-        self._update_status_bar()
-        if error_items:
-            err_msg = "\n".join([f"• {name}: {err}" for name, err in error_items[:5]])
-            QMessageBox.warning(self, "Save Incomplete", f"Saved {saved_count} files.\n\nErrors encountered:\n{err_msg}")
-        else:
-            self.status_bar.showMessage(f"Saved {saved_count} modified file(s).", 4000)
+        self._save_items_in_background(dirty_items)
 
     def revert_selected(self):
         items = self._get_selected_items()
