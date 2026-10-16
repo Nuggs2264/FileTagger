@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, QSortFilterProxyModel, QRegularExpression, QThrea
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTableView, QToolBar, QMenuBar, QMenu, QStatusBar,
-    QFileDialog, QMessageBox, QLineEdit, QLabel, QHeaderView,
+    QFileDialog, QMessageBox, QLineEdit, QTextEdit, QLabel, QHeaderView,
     QProgressDialog, QApplication, QDialog
 )
 from PySide6.QtGui import QAction, QKeySequence, QDragEnterEvent, QDropEvent
@@ -199,8 +199,8 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
-        act_exit = QAction("Exit", self)
-        act_exit.setShortcut(QKeySequence.StandardKey.Quit)
+        act_exit = QAction("🚪 Exit", self)
+        act_exit.setShortcut(QKeySequence("Ctrl+Q"))
         act_exit.triggered.connect(self.close)
         file_menu.addAction(act_exit)
 
@@ -526,6 +526,10 @@ class MainWindow(QMainWindow):
         self._update_status_bar()
 
     def remove_selected(self):
+        focus_widget = QApplication.focusWidget()
+        if isinstance(focus_widget, (QLineEdit, QTextEdit)):
+            return
+
         rows = self._get_selected_source_rows()
         if not rows:
             return
