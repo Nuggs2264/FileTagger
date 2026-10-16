@@ -227,10 +227,13 @@ QPushButton:pressed {
     background-color: #1e1e28;
 }
 
-QPushButton:disabled {
-    background-color: #18181f;
-    border-color: #252530;
-    color: #555566;
+QPushButton:disabled,
+QPushButton#PrimaryButton:disabled,
+QPushButton#SuccessButton:disabled,
+QPushButton#DangerButton:disabled {
+    background-color: #181820;
+    border-color: #252532;
+    color: #525266;
 }
 
 QPushButton#PrimaryButton {
