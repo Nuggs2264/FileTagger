@@ -1,3 +1,4 @@
+import concurrent.futures
 import os
 import re
 import urllib.parse
@@ -241,38 +242,31 @@ def search_discogs(query: str, token: str = "", limit: int = 15) -> list[MusicSe
 
 def search_all_music_sources(query: str, discogs_token: str = "") -> list[MusicSearchResult]:
     """
-    Searches iTunes, Deezer, and MusicBrainz in parallel or unified order.
+    Searches iTunes, Deezer, MusicBrainz, and Discogs concurrently in parallel
+    while preserving deterministic priority order.
     """
-    all_results: list[MusicSearchResult] = []
-
-    # 1. iTunes (highest quality artwork and metadata)
-    try:
-        itunes_res = search_itunes(query, limit=10)
-        all_results.extend(itunes_res)
-    except Exception:
-        pass
-
-    # 2. Deezer
-    try:
-        deezer_res = search_deezer(query, limit=10)
-        all_results.extend(deezer_res)
-    except Exception:
-        pass
-
-    # 3. MusicBrainz
-    try:
-        mb_res = search_musicbrainz_coverart(query, limit=8)
-        all_results.extend(mb_res)
-    except Exception:
-        pass
-
-    # 4. Discogs (if token provided or desired)
+    tasks = {
+        "itunes": lambda: search_itunes(query, limit=10),
+        "deezer": lambda: search_deezer(query, limit=10),
+        "musicbrainz": lambda: search_musicbrainz_coverart(query, limit=8),
+    }
     if discogs_token:
-        try:
-            discogs_res = search_discogs(query, token=discogs_token, limit=8)
-            all_results.extend(discogs_res)
-        except Exception:
-            pass
+        tasks["discogs"] = lambda: search_discogs(query, token=discogs_token, limit=8)
+
+    results_by_provider: dict[str, list[MusicSearchResult]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+        future_to_key = {executor.submit(fn): key for key, fn in tasks.items()}
+        for future in concurrent.futures.as_completed(future_to_key):
+            key = future_to_key[future]
+            try:
+                results_by_provider[key] = future.result() or []
+            except Exception:
+                results_by_provider[key] = []
+
+    all_results: list[MusicSearchResult] = []
+    for key in ("itunes", "deezer", "musicbrainz", "discogs"):
+        if key in results_by_provider:
+            all_results.extend(results_by_provider[key])
 
     return all_results
 

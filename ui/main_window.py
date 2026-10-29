@@ -4,6 +4,7 @@ import re
 from PySide6.QtCore import (
     QEventLoop,
     QRegularExpression,
+    QSize,
     QSortFilterProxyModel,
     Qt,
     QThread,
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressDialog,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QStatusBar,
     QTableView,
@@ -41,6 +43,7 @@ from core.media_item import SUPPORTED_EXTENSIONS, MediaItem
 from core.tagger import normalize_cover_image, read_media_item, save_media_item
 from ui.acoustic_id_dialog import AcousticIdDialog
 from ui.file_table_model import COLUMNS, FileTableModel
+from ui.icons import get_icon, get_pixmap
 from ui.lyrics_dialog import LyricsDialog
 from ui.music_fetcher_dialog import MusicFetcherDialog
 from ui.online_fetcher_dialog import OnlineFetcherDialog
@@ -79,6 +82,47 @@ class SaveWorker(QThread):
                     (item.file_name, item.error or "Unknown save error", getattr(item, "detailed_error", ""))
                 )
         self.finished_save.emit(saved_count, error_items, cancelled)
+
+
+class LoadWorker(QThread):
+    progress = Signal(int, int, str)
+    finished_load = Signal(list, bool)
+
+    def __init__(self, file_paths: list[str], parent=None):
+        super().__init__(parent)
+        self.file_paths = file_paths
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
+
+    def run(self):
+        import concurrent.futures
+
+        total = len(self.file_paths)
+        results: list[MediaItem | None] = [None] * total
+        max_workers = min(4, max(1, total))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_idx = {
+                executor.submit(read_media_item, fp): (idx, fp)
+                for idx, fp in enumerate(self.file_paths)
+            }
+            for completed, future in enumerate(concurrent.futures.as_completed(future_to_idx), 1):
+                if self._is_cancelled:
+                    break
+                idx, fp = future_to_idx[future]
+                try:
+                    item = future.result()
+                    results[idx] = item
+                except Exception as e:
+                    item = MediaItem(file_path=fp)
+                    item.error = f"Read error: {e}"
+                    results[idx] = item
+                self.progress.emit(completed, total, os.path.basename(fp))
+
+        items = [it for it in results if it is not None]
+        self.finished_load.emit(items, self._is_cancelled)
 
 
 class FileSearchFilterProxyModel(QSortFilterProxyModel):
@@ -123,9 +167,10 @@ class TableEmptyStateWidget(QWidget):
         card_layout.setSpacing(12)
         card_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Icon badge
-        lbl_icon = QLabel("🎵")
-        lbl_icon.setStyleSheet("font-size: 32pt; background: transparent;")
+        # Vector Icon badge
+        lbl_icon = QLabel()
+        lbl_icon.setPixmap(get_pixmap("disc", "#3b82f6", 42))
+        lbl_icon.setStyleSheet("background: transparent;")
         lbl_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card_layout.addWidget(lbl_icon)
 
@@ -136,10 +181,11 @@ class TableEmptyStateWidget(QWidget):
         card_layout.addWidget(lbl_title)
 
         # Subtitle
-        lbl_sub = QLabel("Drag & drop audio or video files anywhere here,\nor use the buttons below to open media.")
+        lbl_sub = QLabel("Drag & drop audio or video files here, or browse from disk.")
         lbl_sub.setObjectName("EmptyStateSub")
         lbl_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_sub.setWordWrap(True)
+        lbl_sub.setMinimumHeight(24)
         card_layout.addWidget(lbl_sub)
 
         card_layout.addSpacing(4)
@@ -149,14 +195,18 @@ class TableEmptyStateWidget(QWidget):
         btn_row.setSpacing(12)
         btn_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.btn_files = QPushButton("📂 Add Files...")
+        self.btn_files = QPushButton("Add Files...")
         self.btn_files.setObjectName("PrimaryButton")
+        self.btn_files.setIcon(get_icon("file-plus", "#ffffff", 15))
+        self.btn_files.setIconSize(QSize(15, 15))
         self.btn_files.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_files.setStyleSheet("padding: 8px 18px; font-weight: 600; font-size: 9.5pt;")
         self.btn_files.clicked.connect(self.add_files_requested.emit)
         btn_row.addWidget(self.btn_files)
 
-        self.btn_folder = QPushButton("📁 Add Folder...")
+        self.btn_folder = QPushButton("Add Folder...")
+        self.btn_folder.setIcon(get_icon("folder-plus", "#cbd5e1", 15))
+        self.btn_folder.setIconSize(QSize(15, 15))
         self.btn_folder.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_folder.setStyleSheet("padding: 8px 18px; font-weight: 600; font-size: 9.5pt;")
         self.btn_folder.clicked.connect(self.add_folder_requested.emit)
@@ -220,8 +270,8 @@ class FileTableView(QTableView):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("FileTagger - Advanced Media Tag & Thumbnail Editor")
-        self.resize(1240, 780)
+        self.setWindowTitle("FileTagger — Media Tag & Artwork Studio")
+        self.resize(1260, 780)
         self.setAcceptDrops(True)
 
         self.table_model = FileTableModel(self)
@@ -238,23 +288,14 @@ class MainWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setContentsMargins(10, 8, 10, 8)
         main_layout.setSpacing(6)
-
-        # Search / Quick Filter Bar
-        search_row = QHBoxLayout()
-        search_row.addWidget(QLabel("🔍 Filter:"))
-        self.txt_search = QLineEdit()
-        self.txt_search.setPlaceholderText("Search by filename, title, artist, or album...")
-        self.txt_search.textChanged.connect(self._on_search_changed)
-        self.txt_search.setClearButtonEnabled(True)
-        search_row.addWidget(self.txt_search, 1)
-        main_layout.addLayout(search_row)
 
         # Main horizontal splitter
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setChildrenCollapsible(False)
 
-        # Left side: File Table
+        # Left side: Borderless Studio Tracklist
         self.table_view = FileTableView()
         self.table_view.setModel(self.proxy_model)
         self.table_view.empty_state.add_files_requested.connect(self.add_files_dialog)
@@ -262,17 +303,21 @@ class MainWindow(QMainWindow):
         self.proxy_model.modelReset.connect(self.table_view.update_empty_state)
         self.proxy_model.rowsInserted.connect(lambda *_: self.table_view.update_empty_state())
         self.proxy_model.rowsRemoved.connect(lambda *_: self.table_view.update_empty_state())
+        self.table_view.setShowGrid(False)
         self.table_view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.table_view.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
         self.table_view.setAlternatingRowColors(True)
         self.table_view.setSortingEnabled(True)
         self.table_view.verticalHeader().setVisible(False)
-        self.table_view.verticalHeader().setDefaultSectionSize(28)
+        self.table_view.verticalHeader().setDefaultSectionSize(34)
+        self.table_view.setWordWrap(False)
         self.table_view.horizontalHeader().setStretchLastSection(True)
+        self.table_view.horizontalHeader().setHighlightSections(False)
 
-        # Set default column widths
+        # Set default column widths and hide redundant full Path column (shown in Filename tooltip & Specs)
         for col_idx, (_name, width) in enumerate(COLUMNS):
             self.table_view.setColumnWidth(col_idx, width)
+        self.table_view.setColumnHidden(11, True)
 
         self.table_view.setEditTriggers(
             QTableView.EditTrigger.DoubleClicked
@@ -286,27 +331,29 @@ class MainWindow(QMainWindow):
         self.table_view.customContextMenuRequested.connect(self._show_table_context_menu)
         self.main_splitter.addWidget(self.table_view)
 
-        # Right side: Inspector Panel (vertical splitter for Tag Editor + Thumbnail Panel)
-        self.inspector_splitter = QSplitter(Qt.Orientation.Vertical)
+        # Right side: Cohesive Inspector Sidebar (Compact Cover Header Card on top + Full-Height Tag Inspector below)
+        self.inspector_sidebar = QFrame()
+        self.inspector_sidebar.setObjectName("RightInspectorSidebar")
+        self.inspector_sidebar.setMinimumWidth(400)
+        sidebar_layout = QVBoxLayout(self.inspector_sidebar)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(0)
+
+        self.thumbnail_panel = ThumbnailPanel()
+        self.thumbnail_panel.cover_updated.connect(self._on_cover_updated)
+        self.thumbnail_panel.fetch_online_requested.connect(self.open_online_fetcher)
+        sidebar_layout.addWidget(self.thumbnail_panel, 0)
 
         self.tag_editor = TagEditorPanel()
         self.tag_editor.tags_applied.connect(self._on_tags_applied)
         self.tag_editor.save_requested.connect(self.save_selected)
         self.tag_editor.revert_requested.connect(self.revert_selected)
-        self.inspector_splitter.addWidget(self.tag_editor)
+        sidebar_layout.addWidget(self.tag_editor, 1)
 
-        self.thumbnail_panel = ThumbnailPanel()
-        self.thumbnail_panel.cover_updated.connect(self._on_cover_updated)
-        self.thumbnail_panel.fetch_online_requested.connect(self.open_online_fetcher)
-        self.inspector_splitter.addWidget(self.thumbnail_panel)
-
-        self.inspector_splitter.setStretchFactor(0, 3)
-        self.inspector_splitter.setStretchFactor(1, 2)
-        self.inspector_splitter.setSizes([480, 260])
-
-        self.main_splitter.addWidget(self.inspector_splitter)
+        self.main_splitter.addWidget(self.inspector_sidebar)
         self.main_splitter.setStretchFactor(0, 3)
         self.main_splitter.setStretchFactor(1, 2)
+        self.main_splitter.setSizes([810, 430])
 
         main_layout.addWidget(self.main_splitter, 1)
 
@@ -321,42 +368,42 @@ class MainWindow(QMainWindow):
         # --- File Menu ---
         file_menu = menu_bar.addMenu("&File")
 
-        act_add_files = QAction("📁 Add Files...", self)
+        act_add_files = QAction(get_icon("file-plus", "#cbd5e1", 16), "Add Files...", self)
         act_add_files.setShortcut(QKeySequence.StandardKey.Open)
         act_add_files.triggered.connect(self.add_files_dialog)
         file_menu.addAction(act_add_files)
 
-        act_add_folder = QAction("📂 Add Folder...", self)
+        act_add_folder = QAction(get_icon("folder-plus", "#cbd5e1", 16), "Add Folder...", self)
         act_add_folder.setShortcut(QKeySequence("Ctrl+Shift+O"))
         act_add_folder.triggered.connect(self.add_folder_dialog)
         file_menu.addAction(act_add_folder)
 
         file_menu.addSeparator()
 
-        self.act_save_sel = QAction("💾 Save Selected", self)
+        self.act_save_sel = QAction(get_icon("save", "#60a5fa", 16), "Save Selected", self)
         self.act_save_sel.setShortcut(QKeySequence.StandardKey.Save)
         self.act_save_sel.triggered.connect(self.save_selected)
         file_menu.addAction(self.act_save_sel)
 
-        self.act_save_all = QAction("💾 Save All Modified", self)
+        self.act_save_all = QAction(get_icon("save", "#cbd5e1", 16), "Save All Modified", self)
         self.act_save_all.setShortcut(QKeySequence("Ctrl+Shift+S"))
         self.act_save_all.triggered.connect(self.save_all)
         file_menu.addAction(self.act_save_all)
 
         file_menu.addSeparator()
 
-        act_remove_sel = QAction("🗑️ Remove Selected from List", self)
+        act_remove_sel = QAction(get_icon("trash", "#cbd5e1", 16), "Remove Selected from List", self)
         act_remove_sel.setShortcut(QKeySequence("Del"))
         act_remove_sel.triggered.connect(self.remove_selected)
         file_menu.addAction(act_remove_sel)
 
-        act_clear_all = QAction("🧹 Clear List", self)
+        act_clear_all = QAction(get_icon("x", "#cbd5e1", 16), "Clear List", self)
         act_clear_all.triggered.connect(self.clear_all)
         file_menu.addAction(act_clear_all)
 
         file_menu.addSeparator()
 
-        act_exit = QAction("🚪 Exit", self)
+        act_exit = QAction("Exit", self)
         act_exit.setShortcut(QKeySequence("Ctrl+Q"))
         act_exit.triggered.connect(self.close)
         file_menu.addAction(act_exit)
@@ -364,43 +411,45 @@ class MainWindow(QMainWindow):
         # --- Tools Menu ---
         tools_menu = menu_bar.addMenu("&Tools")
 
-        act_rename = QAction("✏️ Batch Rename Files...", self)
+        act_rename = QAction(get_icon("edit", "#cbd5e1", 16), "Batch Rename Files...", self)
         act_rename.setShortcut(QKeySequence("Ctrl+R"))
         act_rename.triggered.connect(self.open_rename_dialog)
         tools_menu.addAction(act_rename)
 
-        act_fetch_online = QAction("🌐 Fetch Movie/TV Info (TMDb / IMDb)...", self)
+        act_fetch_online = QAction(get_icon("film", "#cbd5e1", 16), "Fetch Movie/TV Info (TMDb / IMDb)...", self)
         act_fetch_online.setShortcut(QKeySequence("Ctrl+F"))
         act_fetch_online.triggered.connect(self.open_online_fetcher)
         tools_menu.addAction(act_fetch_online)
 
-        act_autonum = QAction("🔢 Auto-Number Tracks (1..N)", self)
+        act_autonum = QAction(get_icon("hash", "#cbd5e1", 16), "Auto-Number Tracks (1..N)", self)
         act_autonum.triggered.connect(self.auto_number_tracks)
         tools_menu.addAction(act_autonum)
 
-        act_guess_tags = QAction("🏷️ Guess Tags from Filename (Artist - Title)", self)
+        act_guess_tags = QAction(get_icon("tag", "#cbd5e1", 16), "Guess Tags from Filename (Artist - Title)", self)
         act_guess_tags.triggered.connect(self.guess_tags_from_filename)
         tools_menu.addAction(act_guess_tags)
 
         # --- Audio Superpowers Menu ---
         audio_menu = menu_bar.addMenu("&Audio")
 
-        self.act_music_fetch = QAction("🎨 Fetch Album Art && Tags (iTunes / Deezer / Discogs)...", self)
+        self.act_music_fetch = QAction(
+            get_icon("image", "#cbd5e1", 16), "Fetch Album Art && Tags (iTunes / Deezer / Discogs)...", self
+        )
         self.act_music_fetch.setShortcut(QKeySequence("Ctrl+Shift+F"))
         self.act_music_fetch.triggered.connect(self.open_music_fetcher)
         audio_menu.addAction(self.act_music_fetch)
 
-        self.act_acoustic_id = QAction("🎵 Identify Track (Acoustic ID)...", self)
+        self.act_acoustic_id = QAction(get_icon("fingerprint", "#cbd5e1", 16), "Identify Track (Acoustic ID)...", self)
         self.act_acoustic_id.setShortcut(QKeySequence("Ctrl+I"))
         self.act_acoustic_id.triggered.connect(self.open_acoustic_id)
         audio_menu.addAction(self.act_acoustic_id)
 
-        self.act_lyrics = QAction("🎤 Download Lyrics (LRCLIB)...", self)
+        self.act_lyrics = QAction(get_icon("mic", "#cbd5e1", 16), "Download Lyrics (LRCLIB)...", self)
         self.act_lyrics.setShortcut(QKeySequence("Ctrl+L"))
         self.act_lyrics.triggered.connect(self.open_lyrics_dialog)
         audio_menu.addAction(self.act_lyrics)
 
-        self.act_replay_gain = QAction("🔊 Scan ReplayGain (EBU R128)...", self)
+        self.act_replay_gain = QAction(get_icon("sliders", "#cbd5e1", 16), "Scan ReplayGain (EBU R128)...", self)
         self.act_replay_gain.setShortcut(QKeySequence("Ctrl+G"))
         self.act_replay_gain.triggered.connect(self.open_replay_gain)
         audio_menu.addAction(self.act_replay_gain)
@@ -411,45 +460,69 @@ class MainWindow(QMainWindow):
         act_about.triggered.connect(self._show_about)
         help_menu.addAction(act_about)
 
-        # --- Toolbar ---
-        toolbar = QToolBar("Main Toolbar")
-        toolbar.setMovable(False)
-        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.addToolBar(toolbar)
+        # --- Unified Studio Action Bar (Toolbar + Integrated Search) ---
+        self.toolbar = QToolBar("Main Toolbar")
+        self.toolbar.setMovable(False)
+        self.toolbar.setIconSize(QSize(15, 15))
+        self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.addToolBar(self.toolbar)
 
-        act_add_files.setIconText("📁 Add Files")
-        act_add_folder.setIconText("📂 Add Folder")
-        self.act_save_sel.setIconText("💾 Save")
-        act_remove_sel.setIconText("🗑️ Remove")
-        self.act_music_fetch.setIconText("🎨 Music Art")
+        act_add_files.setIconText("Files")
+        act_add_folder.setIconText("Folder")
+        self.act_save_sel.setIconText("Save")
+        act_remove_sel.setIconText("Remove")
+        self.act_music_fetch.setIconText("Artwork")
         self.act_music_fetch.setToolTip("Fetch Album Art & Tags (iTunes / Deezer / Discogs) [Ctrl+Shift+F]")
-        self.act_acoustic_id.setIconText("🎵 AcoustID")
+        self.act_acoustic_id.setIconText("AcoustID")
         self.act_acoustic_id.setToolTip("Identify Track via Acoustic Fingerprint (AcoustID) [Ctrl+I]")
-        self.act_lyrics.setIconText("🎤 Lyrics")
+        self.act_lyrics.setIconText("Lyrics")
         self.act_lyrics.setToolTip("Download Synchronized & Plain Lyrics (LRCLIB) [Ctrl+L]")
-        self.act_replay_gain.setIconText("🔊 ReplayGain")
+        self.act_replay_gain.setIconText("Gain")
         self.act_replay_gain.setToolTip("Scan ReplayGain / EBU R128 Loudness [Ctrl+G]")
-        act_fetch_online.setIconText("🌐 Movie/TV")
+        act_fetch_online.setIconText("Movie/TV")
         act_fetch_online.setToolTip("Fetch Movie/TV Info & Posters (TMDb / IMDb) [Ctrl+F]")
-        act_rename.setIconText("✏️ Rename")
+        act_rename.setIconText("Rename")
         act_rename.setToolTip("Batch Rename Files from Tags [Ctrl+R]")
-        act_autonum.setIconText("🔢 Auto-#")
-        act_autonum.setToolTip("Auto-Number Tracks (1..N) [Ctrl+N]")
+        act_autonum.setIconText("Track #")
+        act_autonum.setToolTip("Auto-Number Tracks (1..N)")
 
-        toolbar.addAction(act_add_files)
-        toolbar.addAction(act_add_folder)
-        toolbar.addSeparator()
-        toolbar.addAction(self.act_save_sel)
-        toolbar.addAction(act_remove_sel)
-        toolbar.addSeparator()
-        toolbar.addAction(self.act_music_fetch)
-        toolbar.addAction(self.act_acoustic_id)
-        toolbar.addAction(self.act_lyrics)
-        toolbar.addAction(self.act_replay_gain)
-        toolbar.addSeparator()
-        toolbar.addAction(act_fetch_online)
-        toolbar.addAction(act_rename)
-        toolbar.addAction(act_autonum)
+        # Group 1: Library
+        self.toolbar.addAction(act_add_files)
+        self.toolbar.addAction(act_add_folder)
+        self.toolbar.addAction(self.act_save_sel)
+        self.toolbar.addAction(act_remove_sel)
+        self.toolbar.addSeparator()
+
+        # Group 2: Auto-Tag Fetchers
+        self.toolbar.addAction(self.act_music_fetch)
+        self.toolbar.addAction(self.act_acoustic_id)
+        self.toolbar.addAction(self.act_lyrics)
+        self.toolbar.addAction(self.act_replay_gain)
+        self.toolbar.addAction(act_fetch_online)
+        self.toolbar.addSeparator()
+
+        # Group 3: Batch Tools
+        self.toolbar.addAction(act_rename)
+        self.toolbar.addAction(act_autonum)
+
+        # Expanding Spacer + Integrated Right-Aligned Search Input & Count Pill
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        spacer.setStyleSheet("background: transparent;")
+        self.toolbar.addWidget(spacer)
+
+        self.txt_search = QLineEdit()
+        self.txt_search.setObjectName("ToolbarSearchInput")
+        self.txt_search.addAction(get_icon("search", "#64748b", 14), QLineEdit.ActionPosition.LeadingPosition)
+        self.txt_search.setPlaceholderText("Filter tracks, artist, album...")
+        self.txt_search.setFixedWidth(210)
+        self.txt_search.textChanged.connect(self._on_search_changed)
+        self.txt_search.setClearButtonEnabled(True)
+        self.toolbar.addWidget(self.txt_search)
+
+        self.lbl_count_badge = QLabel("0 files")
+        self.lbl_count_badge.setObjectName("ToolbarCountBadge")
+        self.toolbar.addWidget(self.lbl_count_badge)
 
     # ---------------------------------------------------------
     # Drag and Drop
@@ -500,24 +573,33 @@ class MainWindow(QMainWindow):
             QApplication.processEvents()
 
         all_files: list[str] = []
+        seen_norm: set[str] = set()
         cancelled = False
         for path in paths:
             if progress and progress.wasCanceled():
                 cancelled = True
                 break
-            if os.path.isfile(path):
-                ext = os.path.splitext(path)[1].lower()
+            abs_p = os.path.abspath(path)
+            if os.path.isfile(abs_p):
+                ext = os.path.splitext(abs_p)[1].lower()
                 if ext in SUPPORTED_EXTENSIONS:
-                    all_files.append(path)
-            elif os.path.isdir(path):
-                for root, _, filenames in os.walk(path):
+                    norm = os.path.normcase(abs_p)
+                    if norm not in seen_norm:
+                        seen_norm.add(norm)
+                        all_files.append(abs_p)
+            elif os.path.isdir(abs_p):
+                for root, _, filenames in os.walk(abs_p):
                     if progress and progress.wasCanceled():
                         cancelled = True
                         break
                     for fname in filenames:
                         ext = os.path.splitext(fname)[1].lower()
                         if ext in SUPPORTED_EXTENSIONS:
-                            all_files.append(os.path.join(root, fname))
+                            file_p = os.path.abspath(os.path.join(root, fname))
+                            norm = os.path.normcase(file_p)
+                            if norm not in seen_norm:
+                                seen_norm.add(norm)
+                                all_files.append(file_p)
                     if progress:
                         progress.setLabelText(f"Found {len(all_files)} files... Scanning: {os.path.basename(root)}")
                         QApplication.processEvents()
@@ -527,9 +609,9 @@ class MainWindow(QMainWindow):
                 progress.close()
             return
 
-        # Avoid duplicates
-        existing_paths = {item.file_path for item in self.table_model.items}
-        new_files = [f for f in all_files if f not in existing_paths]
+        # Avoid duplicates (normalized on Windows)
+        existing_norms = {os.path.normcase(os.path.abspath(item.file_path)) for item in self.table_model.items}
+        new_files = [f for f in all_files if os.path.normcase(f) not in existing_norms]
 
         if not new_files:
             if progress:
@@ -542,26 +624,38 @@ class MainWindow(QMainWindow):
                 progress = QProgressDialog("Reading metadata and covers...", "Cancel", 0, len(new_files), self)
                 progress.setWindowTitle("Loading Media")
                 progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-                progress.setMinimumDuration(200)
+                progress.setMinimumDuration(0)
                 progress.setMinimumWidth(440)
                 progress.show()
             else:
                 progress.setRange(0, len(new_files))
 
-            items_to_add: list[MediaItem] = []
-            for i, fpath in enumerate(new_files):
-                if progress.wasCanceled():
-                    break
-                progress.setValue(i)
-                progress.setLabelText(f"Reading ({i + 1}/{len(new_files)}): {os.path.basename(fpath)}")
-                QApplication.processEvents()
+            loop = QEventLoop(self)
+            result_holder = {"items": [], "cancelled": False}
 
-                item = read_media_item(fpath)
-                items_to_add.append(item)
+            worker = LoadWorker(new_files, self)
+            progress.canceled.connect(worker.cancel)
 
-            progress.setValue(len(new_files))
-            self.table_model.add_items(items_to_add)
-            self._update_status_bar()
+            def _on_load_progress(curr: int, total: int, fname: str):
+                progress.setValue(curr)
+                progress.setLabelText(f"Reading ({curr}/{total}): {fname}")
+
+            def _on_load_done(items: list, was_cancelled: bool):
+                result_holder["items"] = items
+                result_holder["cancelled"] = was_cancelled
+                loop.quit()
+
+            worker.progress.connect(_on_load_progress)
+            worker.finished_load.connect(_on_load_done)
+            worker.start()
+            loop.exec()
+            worker.wait()
+            progress.close()
+
+            items_to_add = result_holder["items"]
+            if items_to_add:
+                self.table_model.add_items(items_to_add)
+                self._update_status_bar()
         finally:
             if progress:
                 progress.close()
@@ -990,15 +1084,15 @@ class MainWindow(QMainWindow):
         menu.addAction(self.act_lyrics)
         menu.addAction(self.act_replay_gain)
         menu.addSeparator()
-        act_rename = QAction("✏️ Batch Rename Files...", self)
+        act_rename = QAction(get_icon("edit", "#cbd5e1", 16), "Batch Rename Files...", self)
         act_rename.triggered.connect(self.open_rename_dialog)
         menu.addAction(act_rename)
-        act_fetch = QAction("🌐 Fetch Movie/TV Info (TMDb / IMDb)...", self)
+        act_fetch = QAction(get_icon("film", "#cbd5e1", 16), "Fetch Movie/TV Info (TMDb / IMDb)...", self)
         act_fetch.triggered.connect(self.open_online_fetcher)
         menu.addAction(act_fetch)
         menu.addSeparator()
         menu.addAction(self.act_save_sel)
-        act_rem = QAction("🗑️ Remove from List", self)
+        act_rem = QAction(get_icon("trash", "#cbd5e1", 16), "Remove from List", self)
         act_rem.triggered.connect(self.remove_selected)
         menu.addAction(act_rem)
 
@@ -1055,12 +1149,19 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------
     def _update_status_bar(self):
         total = len(self.table_model.items)
+        shown = self.proxy_model.rowCount()
         selected = len(self._get_selected_source_rows())
         dirty = sum(1 for it in self.table_model.items if it.is_dirty)
 
-        text = f"Total: {total} files | Selected: {selected}"
+        if hasattr(self, "lbl_count_badge"):
+            if self.txt_search.text().strip():
+                self.lbl_count_badge.setText(f"{shown}/{total} files")
+            else:
+                self.lbl_count_badge.setText(f"{total} file{'s' if total != 1 else ''}")
+
+        text = f"Total: {total} files  •  Selected: {selected}"
         if dirty > 0:
-            text += f" | ⚠️ {dirty} file(s) unsaved"
+            text += f"  •  {dirty} unsaved"
         self.status_bar.showMessage(text)
 
     def _show_about(self):

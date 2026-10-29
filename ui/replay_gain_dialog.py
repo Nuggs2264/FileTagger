@@ -1,6 +1,7 @@
 import threading
 
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QObject, QSize, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QDialog,
     QGroupBox,
@@ -23,6 +24,8 @@ from core.replay_gain import (
     format_replaygain_track,
     scan_track_loudness,
 )
+from ui.icons import get_icon
+from ui.theme import COLOR_ACCENT, COLOR_SUCCESS
 
 
 class ReplayGainWorkerSignals(QObject):
@@ -33,7 +36,7 @@ class ReplayGainWorkerSignals(QObject):
 
 
 class ReplayGainDialog(QDialog):
-    def __init__(self, items: list[MediaItem], parent=None):
+    def __init__(self, items: list[MediaItem], parent=None, auto_start: bool = True):
         super().__init__(parent)
         self.items = items
         self.track_results: dict[int, tuple[str, str]] = {}  # idx -> (track_gain, track_peak)
@@ -66,7 +69,7 @@ class ReplayGainDialog(QDialog):
 
         # Status & Progress
         self.status_label = QLabel(f"Ready to scan {len(self.items)} file(s)...")
-        self.status_label.setStyleSheet("color: #38bdf8; font-size: 9pt;")
+        self.status_label.setStyleSheet(f"color: {COLOR_ACCENT}; font-size: 9pt;")
         layout.addWidget(self.status_label)
 
         self.progress_bar = QProgressBar()
@@ -76,11 +79,15 @@ class ReplayGainDialog(QDialog):
 
         # Results Table
         self.table = QTableWidget(len(self.items), 6)
+        self.table.setShowGrid(False)
+        self.table.setWordWrap(False)
         self.table.setHorizontalHeaderLabels(
             ["File", "Loudness (LUFS)", "True Peak (dBFS)", "Track Gain", "Track Peak", "Album Gain"]
         )
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(30)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 
         for row, item in enumerate(self.items):
@@ -101,8 +108,9 @@ class ReplayGainDialog(QDialog):
 
         # Buttons
         btn_row = QHBoxLayout()
-        self.btn_start = QPushButton("▶ Start Analysis")
-        self.btn_start.setStyleSheet("font-weight: bold; padding: 6px 16px;")
+        self.btn_start = QPushButton("Start Analysis")
+        self.btn_start.setIcon(get_icon("sliders", "#cbd5e1", 14))
+        self.btn_start.setIconSize(QSize(14, 14))
         self.btn_start.clicked.connect(self._start_scan)
         btn_row.addWidget(self.btn_start)
 
@@ -113,7 +121,9 @@ class ReplayGainDialog(QDialog):
         btn_row.addWidget(self.btn_cancel)
 
         self.btn_apply = QPushButton("Apply ReplayGain Tags")
-        self.btn_apply.setStyleSheet("font-weight: bold; padding: 7px 20px;")
+        self.btn_apply.setObjectName("PrimaryButton")
+        self.btn_apply.setIcon(get_icon("check", "#ffffff", 14))
+        self.btn_apply.setIconSize(QSize(14, 14))
         self.btn_apply.setEnabled(False)
         self.btn_apply.clicked.connect(self._apply_tags)
         btn_row.addWidget(self.btn_apply)
@@ -198,7 +208,7 @@ class ReplayGainDialog(QDialog):
         self.table.setItem(idx, 2, QTableWidgetItem(f"{peak_db:.2f} dBFS"))
 
         gain_item = QTableWidgetItem(gain)
-        gain_item.setForeground(Qt.GlobalColor.cyan)
+        gain_item.setForeground(QColor(COLOR_ACCENT))
         self.table.setItem(idx, 3, gain_item)
 
         self.table.setItem(idx, 4, QTableWidgetItem(peak))
@@ -207,18 +217,18 @@ class ReplayGainDialog(QDialog):
         if self._is_cancelled:
             return
         self.progress_bar.setValue(len(self.items))
-        self.status_label.setText("✓ Loudness analysis complete!")
-        self.status_label.setStyleSheet("color: #4ade80; font-size: 9pt; font-weight: bold;")
+        self.status_label.setText("Loudness analysis complete.")
+        self.status_label.setStyleSheet(f"color: {COLOR_SUCCESS}; font-size: 9pt; font-weight: bold;")
         self.album_gain = album_gain
         self.album_peak = album_peak
 
         if album_gain:
             for row in range(len(self.items)):
                 item_ag = QTableWidgetItem(album_gain)
-                item_ag.setForeground(Qt.GlobalColor.green)
+                item_ag.setForeground(QColor(COLOR_SUCCESS))
                 self.table.setItem(row, 5, item_ag)
             self.album_label.setText(f"Album Summary: Gain {album_gain} | Peak {album_peak}")
-            self.album_label.setStyleSheet("color: #4ade80; font-weight: bold; font-size: 9.5pt;")
+            self.album_label.setStyleSheet(f"color: {COLOR_SUCCESS}; font-weight: bold; font-size: 9.5pt;")
         else:
             self.album_label.setText("Album Gain not requested (Track Gain only).")
 

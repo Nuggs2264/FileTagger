@@ -71,6 +71,24 @@ MP4_ATOM_MAP = {
 }
 REVERSE_MP4_ATOM_MAP = {v: k for k, v in MP4_ATOM_MAP.items()}
 
+RAW_TAG_ALIAS_MAP = {
+    "date": "year",
+    "year": "year",
+    "track": "track_number",
+    "tracknumber": "track_number",
+    "disc": "disc_number",
+    "discnumber": "disc_number",
+    "albumartist": "album_artist",
+    "album_artist": "album_artist",
+    "description": "comment",
+    "comment": "comment",
+    "composer": "composer",
+    "genre": "genre",
+    "title": "title",
+    "artist": "artist",
+    "album": "album",
+}
+
 MP4_TEXT_ATOMS = {
     "purl",
     "egid",
@@ -245,9 +263,15 @@ def read_media_item(file_path: str) -> MediaItem:
     # include any probed raw metadata not already in standard tags
     for rk, rv in raw_meta.items():
         rk_lower = rk.lower()
-        if rk_lower in item.tags and not item.tags[rk_lower]:
-            item.tags[rk_lower] = rv
-        elif rk_lower not in item.tags and rk not in item.extra_tags:
+        std_key = RAW_TAG_ALIAS_MAP.get(rk_lower)
+        if std_key:
+            if not item.tags.get(std_key):
+                item.tags[std_key] = rv
+        elif (
+            item.is_video
+            and item.extension in {".mkv", ".webm", ".avi", ".ts"}
+            and rk not in item.extra_tags
+        ):
             item.extra_tags[rk] = rv
 
     if item.duration <= 0 and probed_dur_str:
@@ -302,21 +326,16 @@ def save_media_item(item: MediaItem) -> bool:
             item.cover_mime = mime
 
         def run_mutagen_save(temp_path: str):
-            orig_path = item.file_path
-            item.file_path = temp_path
-            try:
-                if ext in {".mp4", ".m4a", ".m4v", ".mov"}:
-                    _save_mp4(item)
-                elif ext == ".mp3":
-                    _save_mp3(item)
-                elif ext == ".flac":
-                    _save_flac(item)
-                elif ext in {".ogg", ".opus"}:
-                    _save_ogg(item)
-                elif ext == ".wav":
-                    _save_wav(item)
-            finally:
-                item.file_path = orig_path
+            if ext in {".mp4", ".m4a", ".m4v", ".mov"}:
+                _save_mp4(item, temp_path)
+            elif ext == ".mp3":
+                _save_mp3(item, temp_path)
+            elif ext == ".flac":
+                _save_flac(item, temp_path)
+            elif ext in {".ogg", ".opus"}:
+                _save_ogg(item, temp_path)
+            elif ext == ".wav":
+                _save_wav(item, temp_path)
 
         if ext in {".mp4", ".m4a", ".m4v", ".mov", ".mp3", ".flac", ".ogg", ".opus", ".wav"}:
             _atomic_file_save(item.file_path, run_mutagen_save)
@@ -353,20 +372,19 @@ def save_media_item(item: MediaItem) -> bool:
 
 
 # -------------------------------------------------------------
-# MP3 Handler
+# Shared ID3 Helpers (used by MP3 and WAV)
 # -------------------------------------------------------------
-def _read_mp3(item: MediaItem):
-    audio = MP3(item.file_path)
-    if audio.info:
-        item.duration = audio.info.length
+def _set_id3_text(tags: ID3, frame_cls, frame_id: str, value: str):
+    val_s = str(value or "").strip()
+    if val_s:
+        tags.setall(frame_id, [frame_cls(encoding=3, text=val_s)])
+    else:
+        tags.delall(frame_id)
 
-    if not audio.tags:
-        try:
-            audio.add_tags()
-        except Exception:
-            return
 
-    tags = audio.tags
+def _read_id3_frames(item: MediaItem, tags):
+    if not tags:
+        return
     item.tags["title"] = str(tags.get("TIT2", ""))
     item.tags["artist"] = str(tags.get("TPE1", ""))
     item.tags["album"] = str(tags.get("TALB", ""))
@@ -406,21 +424,16 @@ def _read_mp3(item: MediaItem):
             item.extra_tags[frame_id] = val
 
 
-def _save_mp3(item: MediaItem):
-    try:
-        tags = ID3(item.file_path)
-    except ID3NoHeaderError:
-        tags = ID3()
-
-    tags.setall("TIT2", [TIT2(encoding=3, text=str(item.tags.get("title", "") or ""))])
-    tags.setall("TPE1", [TPE1(encoding=3, text=str(item.tags.get("artist", "") or ""))])
-    tags.setall("TALB", [TALB(encoding=3, text=str(item.tags.get("album", "") or ""))])
-    tags.setall("TPE2", [TPE2(encoding=3, text=str(item.tags.get("album_artist", "") or ""))])
-    tags.setall("TDRC", [TDRC(encoding=3, text=str(item.tags.get("year", "") or ""))])
-    tags.setall("TRCK", [TRCK(encoding=3, text=str(item.tags.get("track_number", "") or ""))])
-    tags.setall("TPOS", [TPOS(encoding=3, text=str(item.tags.get("disc_number", "") or ""))])
-    tags.setall("TCON", [TCON(encoding=3, text=str(item.tags.get("genre", "") or ""))])
-    tags.setall("TCOM", [TCOM(encoding=3, text=str(item.tags.get("composer", "") or ""))])
+def _write_id3_frames(item: MediaItem, tags: ID3):
+    _set_id3_text(tags, TIT2, "TIT2", item.tags.get("title", ""))
+    _set_id3_text(tags, TPE1, "TPE1", item.tags.get("artist", ""))
+    _set_id3_text(tags, TALB, "TALB", item.tags.get("album", ""))
+    _set_id3_text(tags, TPE2, "TPE2", item.tags.get("album_artist", ""))
+    _set_id3_text(tags, TDRC, "TDRC", item.tags.get("year", ""))
+    _set_id3_text(tags, TRCK, "TRCK", item.tags.get("track_number", ""))
+    _set_id3_text(tags, TPOS, "TPOS", item.tags.get("disc_number", ""))
+    _set_id3_text(tags, TCON, "TCON", item.tags.get("genre", ""))
+    _set_id3_text(tags, TCOM, "TCOM", item.tags.get("composer", ""))
 
     comment_text = item.tags.get("comment", "")
     if comment_text:
@@ -429,7 +442,6 @@ def _save_mp3(item: MediaItem):
         tags.delall("COMM")
 
     # Save extra tags
-    # First, handle deletions: remove any extra tags deleted from original_extra_tags
     for orig_key in item.original_extra_tags:
         if orig_key not in item.extra_tags:
             if orig_key in REVERSE_ID3_FRAME_MAP:
@@ -438,7 +450,7 @@ def _save_mp3(item: MediaItem):
                 tags.delall(f"TXXX:{orig_key}")
                 tags.delall(orig_key)
 
-    # Now write current extra tags
+    # Write current extra tags
     for k, v in item.extra_tags.items():
         if not v:
             continue
@@ -467,7 +479,33 @@ def _save_mp3(item: MediaItem):
                 )
             )
 
-    tags.save(item.file_path, v2_version=3)
+
+# -------------------------------------------------------------
+# MP3 Handler
+# -------------------------------------------------------------
+def _read_mp3(item: MediaItem):
+    audio = MP3(item.file_path)
+    if audio.info:
+        item.duration = audio.info.length
+
+    if not audio.tags:
+        try:
+            audio.add_tags()
+        except Exception:
+            return
+
+    _read_id3_frames(item, audio.tags)
+
+
+def _save_mp3(item: MediaItem, file_path: str | None = None):
+    target = file_path or item.file_path
+    try:
+        tags = ID3(target)
+    except ID3NoHeaderError:
+        tags = ID3()
+
+    _write_id3_frames(item, tags)
+    tags.save(target, v2_version=3)
 
 
 # -------------------------------------------------------------
@@ -550,22 +588,31 @@ def _read_mp4(item: MediaItem):
                 item.extra_tags[atom_key] = val_str
 
 
-def _save_mp4(item: MediaItem):
-    audio = MP4(item.file_path)
+def _set_mp4_text(tags, atom: str, val: str):
+    val_s = str(val or "").strip()
+    if val_s:
+        tags[atom] = [val_s]
+    elif atom in tags:
+        del tags[atom]
+
+
+def _save_mp4(item: MediaItem, file_path: str | None = None):
+    target = file_path or item.file_path
+    audio = MP4(target)
     if audio.tags is None:
         audio.add_tags()
 
     tags = audio.tags
-    tags["\xa9nam"] = [item.tags.get("title", "")]
-    tags["\xa9ART"] = [item.tags.get("artist", "")]
-    tags["\xa9alb"] = [item.tags.get("album", "")]
-    tags["aART"] = [item.tags.get("album_artist", "")]
-    tags["\xa9day"] = [item.tags.get("year", "")]
-    tags["\xa9gen"] = [item.tags.get("genre", "")]
+    _set_mp4_text(tags, "\xa9nam", item.tags.get("title", ""))
+    _set_mp4_text(tags, "\xa9ART", item.tags.get("artist", ""))
+    _set_mp4_text(tags, "\xa9alb", item.tags.get("album", ""))
+    _set_mp4_text(tags, "aART", item.tags.get("album_artist", ""))
+    _set_mp4_text(tags, "\xa9day", item.tags.get("year", ""))
+    _set_mp4_text(tags, "\xa9gen", item.tags.get("genre", ""))
     if "gnre" in tags:
         del tags["gnre"]
-    tags["\xa9cmt"] = [item.tags.get("comment", "")]
-    tags["\xa9wrt"] = [item.tags.get("composer", "")]
+    _set_mp4_text(tags, "\xa9cmt", item.tags.get("comment", ""))
+    _set_mp4_text(tags, "\xa9wrt", item.tags.get("composer", ""))
 
     track_str = item.tags.get("track_number", "").strip()
     if track_str:
@@ -686,23 +733,39 @@ def _read_flac(item: MediaItem):
         k_upper = k.upper()
         if k_upper in standard_flac_keys:
             continue
-        item.extra_tags[k] = str(val_list[0]) if val_list else ""
+        item.extra_tags[k_upper] = str(val_list[0]) if val_list else ""
 
 
-def _save_flac(item: MediaItem):
-    audio = FLAC(item.file_path)
-    audio["TITLE"] = str(item.tags.get("title", "") or "")
-    audio["ARTIST"] = str(item.tags.get("artist", "") or "")
-    audio["ALBUM"] = str(item.tags.get("album", "") or "")
-    audio["ALBUMARTIST"] = str(item.tags.get("album_artist", "") or "")
-    audio["DATE"] = str(item.tags.get("year", "") or "")
-    audio["TRACKNUMBER"] = str(item.tags.get("track_number", "") or "")
-    audio["DISCNUMBER"] = str(item.tags.get("disc_number", "") or "")
-    audio["GENRE"] = str(item.tags.get("genre", "") or "")
-    audio["COMMENT"] = str(item.tags.get("comment", "") or "")
-    audio["COMPOSER"] = str(item.tags.get("composer", "") or "")
+VORBIS_STANDARD_KEYS = {
+    "TITLE",
+    "ARTIST",
+    "ALBUM",
+    "ALBUMARTIST",
+    "ALBUM ARTIST",
+    "DATE",
+    "YEAR",
+    "TRACKNUMBER",
+    "DISCNUMBER",
+    "GENRE",
+    "COMMENT",
+    "DESCRIPTION",
+    "COMPOSER",
+}
 
-    # Deletions
+
+def _set_vorbis_text(audio, key: str, val: str):
+    val_s = str(val or "").strip()
+    if val_s:
+        audio[key] = val_s
+    elif key in audio:
+        del audio[key]
+
+
+def _save_flac(item: MediaItem, file_path: str | None = None):
+    target = file_path or item.file_path
+    audio = FLAC(target)
+
+    # Deletions of extra tags
     for orig_k in list(item.original_extra_tags.keys()):
         if orig_k not in item.extra_tags:
             try:
@@ -714,15 +777,27 @@ def _save_flac(item: MediaItem):
             except Exception:
                 pass
 
-    # Add/update extra tags safely
+    # Add/update extra tags safely (excluding standard Vorbis keys to prevent clobbering)
     for k, v in item.extra_tags.items():
         if v is not None and str(v).strip():
             clean_k = sanitize_vorbis_key(k)
-            if clean_k and is_valid_vorbis_key(clean_k):
+            if clean_k and is_valid_vorbis_key(clean_k) and clean_k.upper() not in VORBIS_STANDARD_KEYS:
                 try:
                     audio[clean_k] = str(v)
                 except Exception as ex:
                     print(f"Warning: Could not set FLAC tag '{clean_k}': {ex}")
+
+    # Standard tags set afterwards so they always win and empty fields are deleted
+    _set_vorbis_text(audio, "TITLE", item.tags.get("title", ""))
+    _set_vorbis_text(audio, "ARTIST", item.tags.get("artist", ""))
+    _set_vorbis_text(audio, "ALBUM", item.tags.get("album", ""))
+    _set_vorbis_text(audio, "ALBUMARTIST", item.tags.get("album_artist", ""))
+    _set_vorbis_text(audio, "DATE", item.tags.get("year", ""))
+    _set_vorbis_text(audio, "TRACKNUMBER", item.tags.get("track_number", ""))
+    _set_vorbis_text(audio, "DISCNUMBER", item.tags.get("disc_number", ""))
+    _set_vorbis_text(audio, "GENRE", item.tags.get("genre", ""))
+    _set_vorbis_text(audio, "COMMENT", item.tags.get("comment", ""))
+    _set_vorbis_text(audio, "COMPOSER", item.tags.get("composer", ""))
 
     if item.cover_modified:
         audio.clear_pictures()
@@ -780,25 +855,15 @@ def _read_ogg(item: MediaItem):
         k_lower = k.lower()
         if k_lower in standard_ogg_keys:
             continue
-        item.extra_tags[k] = str(val_list[0]) if val_list else ""
+        item.extra_tags[k.upper()] = str(val_list[0]) if val_list else ""
 
 
-def _save_ogg(item: MediaItem):
+def _save_ogg(item: MediaItem, file_path: str | None = None):
+    target = file_path or item.file_path
     try:
-        audio = OggOpus(item.file_path)
+        audio = OggOpus(target)
     except Exception:
-        audio = OggVorbis(item.file_path)
-
-    audio["title"] = str(item.tags.get("title", "") or "")
-    audio["artist"] = str(item.tags.get("artist", "") or "")
-    audio["album"] = str(item.tags.get("album", "") or "")
-    audio["albumartist"] = str(item.tags.get("album_artist", "") or "")
-    audio["date"] = str(item.tags.get("year", "") or "")
-    audio["tracknumber"] = str(item.tags.get("track_number", "") or "")
-    audio["discnumber"] = str(item.tags.get("disc_number", "") or "")
-    audio["genre"] = str(item.tags.get("genre", "") or "")
-    audio["comment"] = str(item.tags.get("comment", "") or "")
-    audio["composer"] = str(item.tags.get("composer", "") or "")
+        audio = OggVorbis(target)
 
     # Deletions
     for orig_k in list(item.original_extra_tags.keys()):
@@ -815,11 +880,22 @@ def _save_ogg(item: MediaItem):
     for k, v in item.extra_tags.items():
         if v is not None and str(v).strip():
             clean_k = sanitize_vorbis_key(k)
-            if clean_k and is_valid_vorbis_key(clean_k):
+            if clean_k and is_valid_vorbis_key(clean_k) and clean_k.upper() not in VORBIS_STANDARD_KEYS:
                 try:
                     audio[clean_k.lower()] = str(v)
                 except Exception as ex:
                     print(f"Warning: Could not set OGG tag '{clean_k}': {ex}")
+
+    _set_vorbis_text(audio, "title", item.tags.get("title", ""))
+    _set_vorbis_text(audio, "artist", item.tags.get("artist", ""))
+    _set_vorbis_text(audio, "album", item.tags.get("album", ""))
+    _set_vorbis_text(audio, "albumartist", item.tags.get("album_artist", ""))
+    _set_vorbis_text(audio, "date", item.tags.get("year", ""))
+    _set_vorbis_text(audio, "tracknumber", item.tags.get("track_number", ""))
+    _set_vorbis_text(audio, "discnumber", item.tags.get("disc_number", ""))
+    _set_vorbis_text(audio, "genre", item.tags.get("genre", ""))
+    _set_vorbis_text(audio, "comment", item.tags.get("comment", ""))
+    _set_vorbis_text(audio, "composer", item.tags.get("composer", ""))
 
     audio.save()
 
@@ -832,28 +908,35 @@ def _read_wav(item: MediaItem):
     if audio.info:
         item.duration = audio.info.length
     if audio.tags:
-        item.tags["title"] = str(audio.tags.get("TIT2", ""))
-        item.tags["artist"] = str(audio.tags.get("TPE1", ""))
-        item.tags["album"] = str(audio.tags.get("TALB", ""))
-        item.tags["year"] = str(audio.tags.get("TDRC", ""))
-        item.tags["genre"] = str(audio.tags.get("TCON", ""))
+        _read_id3_frames(item, audio.tags)
 
 
-def _save_wav(item: MediaItem):
-    audio = WAVE(item.file_path)
+def _save_wav(item: MediaItem, file_path: str | None = None):
+    target = file_path or item.file_path
+    audio = WAVE(target)
     if audio.tags is None:
         audio.add_tags()
-    audio.tags.setall("TIT2", [TIT2(encoding=3, text=item.tags.get("title", ""))])
-    audio.tags.setall("TPE1", [TPE1(encoding=3, text=item.tags.get("artist", ""))])
-    audio.tags.setall("TALB", [TALB(encoding=3, text=item.tags.get("album", ""))])
-    audio.tags.setall("TDRC", [TDRC(encoding=3, text=item.tags.get("year", ""))])
-    audio.tags.setall("TCON", [TCON(encoding=3, text=item.tags.get("genre", ""))])
+    _write_id3_frames(item, audio.tags)
     audio.save()
 
 
 # -------------------------------------------------------------
 # MKV / Video Handler
 # -------------------------------------------------------------
+MKV_TAG_MAP = {
+    "title": "title",
+    "artist": "artist",
+    "album": "album",
+    "album_artist": "album_artist",
+    "year": "date",
+    "track_number": "track",
+    "disc_number": "disc",
+    "genre": "genre",
+    "comment": "comment",
+    "composer": "composer",
+}
+
+
 def _read_video_generic(item: MediaItem):
     """Probes video duration and attempts to extract embedded cover if present."""
     ffmpeg_exe = get_ffmpeg_path()
@@ -905,15 +988,18 @@ def _save_mkv(item: MediaItem):
 
     cmd = [ffmpeg_exe, "-hide_banner", "-y", "-i", item.file_path, "-map", "0", "-c", "copy"]
 
-    # Write standard tags
-    if item.tags.get("title"):
-        cmd.extend(["-metadata", f"title={item.tags['title']}"])
-    if item.tags.get("artist"):
-        cmd.extend(["-metadata", f"artist={item.tags['artist']}"])
-    if item.tags.get("comment"):
-        cmd.extend(["-metadata", f"comment={item.tags['comment']}"])
-    if item.tags.get("year"):
-        cmd.extend(["-metadata", f"date={item.tags['year']}"])
+    # Write standard tags (clearing any tags deleted by user)
+    for k, meta_name in MKV_TAG_MAP.items():
+        val = item.tags.get(k, "").strip()
+        if val:
+            cmd.extend(["-metadata", f"{meta_name}={val}"])
+        elif item.original_tags.get(k, "").strip():
+            cmd.extend(["-metadata", f"{meta_name}="])
+
+    # Deletions of extra tags
+    for orig_k in item.original_extra_tags:
+        if orig_k not in item.extra_tags:
+            cmd.extend(["-metadata", f"{orig_k}="])
 
     # Write extra tags
     for k, v in item.extra_tags.items():

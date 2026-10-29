@@ -1,7 +1,7 @@
 import html
 import threading
 
-from PySide6.QtCore import QObject, QSettings, Qt, Signal
+from PySide6.QtCore import QObject, QSettings, QSize, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -34,6 +34,7 @@ from core.music_online_fetcher import (
     search_musicbrainz_coverart,
 )
 from core.secure_storage import decrypt_secret, encrypt_secret
+from ui.icons import get_icon
 
 
 class MusicSearchSignals(QObject):
@@ -46,7 +47,7 @@ class MusicImageSignals(QObject):
 
 
 class MusicFetcherDialog(QDialog):
-    def __init__(self, initial_query: str = "", parent=None):
+    def __init__(self, initial_query: str = "", parent=None, auto_start: bool = True):
         super().__init__(parent)
         self.settings = QSettings("FileTagger", "FileTagger")
         self.initial_query = clean_query_text(initial_query)
@@ -60,7 +61,7 @@ class MusicFetcherDialog(QDialog):
         self.resize(920, 640)
         self._init_ui()
 
-        if self.initial_query:
+        if auto_start and self.initial_query:
             self._start_search()
 
     def _init_ui(self):
@@ -74,6 +75,7 @@ class MusicFetcherDialog(QDialog):
 
         search_row.addWidget(QLabel("Search Query:"))
         self.txt_query = QLineEdit(self.initial_query)
+        self.txt_query.addAction(get_icon("search", "#64748b", 14), QLineEdit.ActionPosition.LeadingPosition)
         self.txt_query.setPlaceholderText("Enter artist, album, or track title (e.g. Shaggy - Hot Shot)...")
         self.txt_query.returnPressed.connect(self._start_search)
         search_row.addWidget(self.txt_query, 1)
@@ -81,23 +83,25 @@ class MusicFetcherDialog(QDialog):
         self.cmb_engine = QComboBox()
         self.cmb_engine.addItems(
             [
-                "🎵 All Sources (iTunes, Deezer, MusicBrainz)",
-                "🍎 iTunes / Apple Music (Hi-Res 1400x1400)",
-                "🎧 Deezer (1000x1000 Artwork)",
-                "🧠 MusicBrainz & Cover Art Archive",
-                "💿 Discogs (Vinyl & CD Database)",
+                "All Sources (iTunes, Deezer, MusicBrainz)",
+                "iTunes / Apple Music (Hi-Res 1400x1400)",
+                "Deezer (1000x1000 Artwork)",
+                "MusicBrainz & Cover Art Archive",
+                "Discogs (Vinyl & CD Database)",
             ]
         )
-        saved_engine = self.settings.value("music_search_engine", "🎵 All Sources (iTunes, Deezer, MusicBrainz)")
-        idx = self.cmb_engine.findText(saved_engine)
-        if idx >= 0:
-            self.cmb_engine.setCurrentIndex(idx)
+        saved_engine = str(self.settings.value("music_search_engine", "All Sources (iTunes, Deezer, MusicBrainz)"))
+        for i in range(self.cmb_engine.count()):
+            if self.cmb_engine.itemText(i) in saved_engine or saved_engine in self.cmb_engine.itemText(i):
+                self.cmb_engine.setCurrentIndex(i)
+                break
         self.cmb_engine.currentTextChanged.connect(self._on_engine_changed)
         search_row.addWidget(self.cmb_engine)
 
-        self.btn_search = QPushButton("🔍 Search")
+        self.btn_search = QPushButton("Search")
         self.btn_search.setObjectName("PrimaryButton")
-        self.btn_search.setStyleSheet("font-weight: bold; padding: 6px 16px;")
+        self.btn_search.setIcon(get_icon("search", "#ffffff", 14))
+        self.btn_search.setIconSize(QSize(14, 14))
         self.btn_search.clicked.connect(self._start_search)
         search_row.addWidget(self.btn_search)
 
@@ -140,6 +144,8 @@ class MusicFetcherDialog(QDialog):
 
         left_layout.addWidget(QLabel("Search Results:"))
         self.table_results = QTableWidget(0, 6)
+        self.table_results.setShowGrid(False)
+        self.table_results.setWordWrap(False)
         self.table_results.setHorizontalHeaderLabels(["Source", "Album / Release", "Artist", "Year", "Tracks", "Genre"])
         self.table_results.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table_results.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
@@ -149,6 +155,7 @@ class MusicFetcherDialog(QDialog):
         self.table_results.setColumnWidth(4, 55)
         self.table_results.setColumnWidth(5, 80)
         self.table_results.verticalHeader().setVisible(False)
+        self.table_results.verticalHeader().setDefaultSectionSize(30)
         self.table_results.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table_results.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table_results.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -172,11 +179,11 @@ class MusicFetcherDialog(QDialog):
         self.art_preview.setMaximumSize(320, 320)
         self.art_preview.setStyleSheet("""
             QLabel {
-                background-color: #18181f;
-                border: 2px dashed #2d2d3d;
+                background-color: #0a0d14;
+                border: 1px solid #232e42;
                 border-radius: 8px;
                 color: #64748b;
-                font-size: 10pt;
+                font-size: 9.5pt;
             }
         """)
         right_layout.addWidget(self.art_preview, 0, Qt.AlignmentFlag.AlignCenter)
@@ -191,7 +198,7 @@ class MusicFetcherDialog(QDialog):
         self.txt_details = QTextEdit()
         self.txt_details.setReadOnly(True)
         self.txt_details.setStyleSheet(
-            "background-color: #18181f; border: 1px solid #262632; border-radius: 6px; font-size: 9pt;"
+            "background-color: #0a0d14; border: 1px solid #232e42; border-radius: 6px; font-size: 9pt;"
         )
         right_layout.addWidget(self.txt_details, 1)
 
@@ -233,7 +240,8 @@ class MusicFetcherDialog(QDialog):
 
         self.btn_apply = QPushButton("Apply to Selected Files")
         self.btn_apply.setObjectName("PrimaryButton")
-        self.btn_apply.setStyleSheet("font-weight: bold; padding: 7px 20px;")
+        self.btn_apply.setIcon(get_icon("check", "#ffffff", 14))
+        self.btn_apply.setIconSize(QSize(14, 14))
         self.btn_apply.setEnabled(False)
         self.btn_apply.clicked.connect(self._apply_metadata)
         bottom_bar.addWidget(self.btn_apply)
@@ -389,7 +397,7 @@ class MusicFetcherDialog(QDialog):
             )
             self.art_preview.setPixmap(scaled)
             size_kb = len(data) / 1024.0
-            self.art_info_label.setText(f"Resolution: {pixmap.width()}×{pixmap.height()} | Size: {size_kb:.1f} KB")
+            self.art_info_label.setText(f"Resolution: {pixmap.width()}×{pixmap.height()} • Size: {size_kb:.1f} KB")
         else:
             self.art_preview.setText("Failed to render image")
 
@@ -399,3 +407,41 @@ class MusicFetcherDialog(QDialog):
         if not self.selected_result:
             return
         self.accept()
+
+    def reject(self):
+        self._search_req_id += 1
+        self._img_req_id += 1
+        if hasattr(self, "search_signals"):
+            try:
+                self.search_signals.results_ready.disconnect()
+            except Exception:
+                pass
+            try:
+                self.search_signals.error_occurred.disconnect()
+            except Exception:
+                pass
+        if hasattr(self, "image_signals"):
+            try:
+                self.image_signals.image_ready.disconnect()
+            except Exception:
+                pass
+        super().reject()
+
+    def closeEvent(self, event):
+        self._search_req_id += 1
+        self._img_req_id += 1
+        if hasattr(self, "search_signals"):
+            try:
+                self.search_signals.results_ready.disconnect()
+            except Exception:
+                pass
+            try:
+                self.search_signals.error_occurred.disconnect()
+            except Exception:
+                pass
+        if hasattr(self, "image_signals"):
+            try:
+                self.image_signals.image_ready.disconnect()
+            except Exception:
+                pass
+        super().closeEvent(event)

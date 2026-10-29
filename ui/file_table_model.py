@@ -2,23 +2,25 @@ import os
 from typing import Any
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
+from PySide6.QtGui import QColor
 
 from core.media_item import MediaItem
 from ui.rename_dialog import sanitize_filename
+from ui.theme import COLOR_ACCENT, COLOR_SUCCESS, COLOR_TEXT_MUTED, COLOR_WARNING
 
 COLUMNS = [
-    ("Mod", 45),
-    ("Filename", 220),
-    ("Format", 65),
-    ("Title", 180),
-    ("Artist", 160),
-    ("Album", 160),
-    ("Year", 60),
-    ("Track", 60),
-    ("Genre", 100),
-    ("Duration", 75),
-    ("Cover", 70),
-    ("Path", 250),
+    ("●", 26),
+    ("Filename", 116),
+    ("Format", 56),
+    ("Title", 120),
+    ("Artist", 96),
+    ("Album", 96),
+    ("Year", 48),
+    ("#", 36),
+    ("Genre", 68),
+    ("Time", 52),
+    ("Cover", 66),
+    ("Path", 160),
 ]
 
 EDITABLE_COLUMNS = {
@@ -92,8 +94,8 @@ class FileTableModel(QAbstractTableModel):
                 return item.formatted_duration()
             elif col == 10:
                 if item.cover_bytes:
-                    return f"Yes ({len(item.cover_bytes) // 1024}K)"
-                return "No"
+                    return f"● {max(1, len(item.cover_bytes) // 1024)} KB"
+                return "—"
             elif col == 11:
                 return item.file_path
 
@@ -104,13 +106,13 @@ class FileTableModel(QAbstractTableModel):
 
         elif role == Qt.ItemDataRole.ForegroundRole:
             if col == 0 and item.is_dirty:
-                from PySide6.QtGui import QColor
-
-                return QColor("#f59e0b")  # Amber dot for modified
-            if col == 10 and item.cover_bytes:
-                from PySide6.QtGui import QColor
-
-                return QColor("#10b981")  # Green for has cover
+                return QColor(COLOR_WARNING)
+            if col == 2:
+                return QColor(COLOR_ACCENT)
+            if col == 10:
+                return QColor(COLOR_SUCCESS) if item.cover_bytes else QColor("#475569")
+            if col in {9, 11}:
+                return QColor(COLOR_TEXT_MUTED)
 
         elif role == Qt.ItemDataRole.ToolTipRole:
             if col == 0:

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.ffmpeg_utils import extract_frame_bytes
+from ui.icons import get_icon
 
 
 class FrameExtractWorker(QThread):
@@ -57,7 +58,7 @@ class FrameGrabberDialog(QDialog):
         # Frame preview area
         self.preview_container = QFrame()
         self.preview_container.setStyleSheet(
-            "background-color: #121216; border-radius: 8px; border: 1px solid #262632;"
+            "background-color: #0a0d14; border-radius: 8px; border: 1px solid #232e42;"
         )
         preview_layout = QVBoxLayout(self.preview_container)
         preview_layout.setContentsMargins(4, 4, 4, 4)
@@ -129,10 +130,12 @@ class FrameGrabberDialog(QDialog):
         bottom_row.addStretch()
 
         self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setIcon(get_icon("x"))
         self.btn_cancel.clicked.connect(self.reject)
         bottom_row.addWidget(self.btn_cancel)
 
         self.btn_use = QPushButton("Use as Video Thumbnail")
+        self.btn_use.setIcon(get_icon("check", "#ffffff"))
         self.btn_use.setObjectName("PrimaryButton")
         self.btn_use.setStyleSheet("font-weight: bold; padding: 7px 18px;")
         self.btn_use.clicked.connect(self._accept_thumbnail)

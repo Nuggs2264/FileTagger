@@ -36,52 +36,75 @@ def get_fpcalc_path() -> str | None:
     """
     Locates or automatically provisions the portable fpcalc.exe binary.
     Checks:
-    1. Local bin/fpcalc.exe
-    2. System PATH
-    3. Auto-downloads AcoustID's official precompiled Windows binary into bin/ (verified via SHA-256)
+    1. Local app bin/fpcalc.exe
+    2. User data directory (e.g. %LOCALAPPDATA%/FileTagger/bin/fpcalc.exe)
+    3. System PATH
+    4. Auto-downloads AcoustID's official precompiled Windows binary into bin/
+       (or user data directory if read-only) (verified via SHA-256)
     """
-    # 1. Local bin directory
+    exe_name = "fpcalc.exe" if os.name == "nt" else "fpcalc"
     app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    local_bin = os.path.join(app_dir, "bin", "fpcalc.exe" if os.name == "nt" else "fpcalc")
+    local_bin = os.path.join(app_dir, "bin", exe_name)
     if os.path.isfile(local_bin):
         return local_bin
 
-    # 2. System PATH
+    # 2. Check user data bin
+    user_bin_dir = (
+        os.path.join(os.environ.get("LOCALAPPDATA", tempfile.gettempdir()), "FileTagger", "bin")
+        if os.name == "nt"
+        else os.path.expanduser("~/.local/share/FileTagger/bin")
+    )
+    user_bin = os.path.join(user_bin_dir, exe_name)
+    if os.path.isfile(user_bin):
+        return user_bin
+
+    # 3. System PATH
     sys_path = shutil.which("fpcalc")
     if sys_path:
         return sys_path
 
-    # 3. Auto-download on Windows if missing
+    # 4. Auto-download on Windows if missing
     if os.name == "nt":
-        try:
-            bin_dir = os.path.join(app_dir, "bin")
-            os.makedirs(bin_dir, exist_ok=True)
-            req = urllib.request.Request(
-                FPCALC_DOWNLOAD_URL, headers={"User-Agent": "FileTagger/1.0 (Portable Downloader)"}
-            )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = resp.read(10 * 1024 * 1024)  # Cap at 10 MB
-                with zipfile.ZipFile(io.BytesIO(data)) as z:
-                    for name in z.namelist():
-                        if name.endswith("fpcalc.exe"):
-                            exe_bytes = z.read(name)
-                            digest = hashlib.sha256(exe_bytes).hexdigest().lower()
-                            if FPCALC_EXPECTED_SHA256 and digest != FPCALC_EXPECTED_SHA256.lower():
-                                raise RuntimeError(f"fpcalc.exe SHA-256 mismatch: {digest}")
-                            fd, tmp_path = tempfile.mkstemp(dir=bin_dir, suffix=".tmp")
-                            try:
-                                with os.fdopen(fd, "wb") as f:
-                                    f.write(exe_bytes)
-                                os.replace(tmp_path, local_bin)
-                            finally:
-                                if os.path.exists(tmp_path):
-                                    try:
-                                        os.remove(tmp_path)
-                                    except Exception:
-                                        pass
-                            return local_bin
-        except Exception:
-            pass
+        target_dirs = [os.path.join(app_dir, "bin"), user_bin_dir]
+        for target_dir in target_dirs:
+            try:
+                os.makedirs(target_dir, exist_ok=True)
+                # Test writability
+                test_file = os.path.join(target_dir, ".write_test")
+                try:
+                    with open(test_file, "w") as f:
+                        f.write("1")
+                    os.remove(test_file)
+                except OSError:
+                    continue  # Try next directory if not writable
+
+                target_bin = os.path.join(target_dir, exe_name)
+                req = urllib.request.Request(
+                    FPCALC_DOWNLOAD_URL, headers={"User-Agent": "FileTagger/1.0 (Portable Downloader)"}
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = resp.read(10 * 1024 * 1024)  # Cap at 10 MB
+                    with zipfile.ZipFile(io.BytesIO(data)) as z:
+                        for name in z.namelist():
+                            if name.endswith("fpcalc.exe"):
+                                exe_bytes = z.read(name)
+                                digest = hashlib.sha256(exe_bytes).hexdigest().lower()
+                                if FPCALC_EXPECTED_SHA256 and digest != FPCALC_EXPECTED_SHA256.lower():
+                                    raise RuntimeError(f"fpcalc.exe SHA-256 mismatch: {digest}")
+                                fd, tmp_path = tempfile.mkstemp(dir=target_dir, suffix=".tmp")
+                                try:
+                                    with os.fdopen(fd, "wb") as f:
+                                        f.write(exe_bytes)
+                                    os.replace(tmp_path, target_bin)
+                                finally:
+                                    if os.path.exists(tmp_path):
+                                        try:
+                                            os.remove(tmp_path)
+                                        except Exception:
+                                            pass
+                                return target_bin
+            except Exception:
+                continue
 
     return None
 

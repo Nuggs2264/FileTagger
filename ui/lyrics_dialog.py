@@ -1,7 +1,7 @@
 import os
 import threading
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QSize, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
 
 from core.lyrics_fetcher import LyricsResult, fetch_lyrics, save_lrc_file
 from core.media_item import MediaItem
+from ui.icons import get_icon
+from ui.theme import COLOR_ACCENT, COLOR_DANGER, COLOR_SUCCESS, COLOR_WARNING
 
 
 class LyricsWorkerSignals(QObject):
@@ -27,7 +29,7 @@ class LyricsWorkerSignals(QObject):
 
 
 class LyricsDialog(QDialog):
-    def __init__(self, item: MediaItem, parent=None):
+    def __init__(self, item: MediaItem, parent=None, auto_start: bool = True):
         super().__init__(parent)
         self.item = item
         self.lyrics_result: LyricsResult | None = None
@@ -37,7 +39,10 @@ class LyricsDialog(QDialog):
         self.setWindowTitle("Synchronized Lyrics Downloader (LRCLIB)")
         self.resize(700, 540)
         self._init_ui()
-        self._start_fetch()
+        if auto_start:
+            self._start_fetch()
+        else:
+            self.progress_bar.setVisible(False)
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -64,8 +69,9 @@ class LyricsDialog(QDialog):
         search_layout.addWidget(QLabel("Album:"))
         search_layout.addWidget(self.txt_album, 1)
 
-        self.btn_search = QPushButton("🔍 Fetch")
-        self.btn_search.setStyleSheet("font-weight: bold; padding: 5px 14px;")
+        self.btn_search = QPushButton("Fetch")
+        self.btn_search.setIcon(get_icon("search", "#cbd5e1", 14))
+        self.btn_search.setIconSize(QSize(14, 14))
         self.btn_search.clicked.connect(self._start_fetch)
         search_layout.addWidget(self.btn_search)
 
@@ -73,7 +79,7 @@ class LyricsDialog(QDialog):
 
         # Status & Progress
         self.status_label = QLabel("Searching LRCLIB for synchronized lyrics...")
-        self.status_label.setStyleSheet("color: #38bdf8; font-size: 9pt;")
+        self.status_label.setStyleSheet(f"color: {COLOR_ACCENT}; font-size: 9pt;")
         layout.addWidget(self.status_label)
 
         self.progress_bar = QProgressBar()
@@ -82,16 +88,17 @@ class LyricsDialog(QDialog):
 
         # Tabs for Synced & Plain Lyrics
         self.tabs = QTabWidget()
+        self.tabs.setIconSize(QSize(14, 14))
 
         self.txt_synced = QTextEdit()
         self.txt_synced.setPlaceholderText("Timestamped lyrics [mm:ss.xx] will appear here...")
         self.txt_synced.setStyleSheet("font-family: Consolas, monospace; font-size: 9.5pt;")
-        self.tabs.addTab(self.txt_synced, "⏱️ Synchronized (.lrc)")
+        self.tabs.addTab(self.txt_synced, get_icon("mic", "#94a3b8", 14), "Synchronized (.lrc)")
 
         self.txt_plain = QTextEdit()
         self.txt_plain.setPlaceholderText("Plain lyrics text will appear here...")
         self.txt_plain.setStyleSheet("font-size: 9.5pt;")
-        self.tabs.addTab(self.txt_plain, "📄 Plain Lyrics")
+        self.tabs.addTab(self.txt_plain, get_icon("list", "#94a3b8", 14), "Plain Lyrics")
 
         layout.addWidget(self.tabs, 1)
 
@@ -120,7 +127,9 @@ class LyricsDialog(QDialog):
         btn_row.addWidget(self.btn_cancel)
 
         self.btn_apply = QPushButton("Apply Lyrics")
-        self.btn_apply.setStyleSheet("font-weight: bold; padding: 7px 20px;")
+        self.btn_apply.setObjectName("PrimaryButton")
+        self.btn_apply.setIcon(get_icon("check", "#ffffff", 14))
+        self.btn_apply.setIconSize(QSize(14, 14))
         self.btn_apply.clicked.connect(self._apply_lyrics)
         btn_row.addWidget(self.btn_apply)
 
@@ -136,7 +145,7 @@ class LyricsDialog(QDialog):
 
         self.progress_bar.setVisible(True)
         self.status_label.setText(f"Querying LRCLIB for '{title}'...")
-        self.status_label.setStyleSheet("color: #38bdf8; font-size: 9pt;")
+        self.status_label.setStyleSheet(f"color: {COLOR_ACCENT}; font-size: 9pt;")
         self.btn_search.setEnabled(False)
 
         signals = LyricsWorkerSignals(self)
@@ -171,19 +180,19 @@ class LyricsDialog(QDialog):
 
         if not result:
             self.status_label.setText("No lyrics found for this track on LRCLIB.")
-            self.status_label.setStyleSheet("color: #f87171; font-size: 9pt;")
+            self.status_label.setStyleSheet(f"color: {COLOR_DANGER}; font-size: 9pt;")
             return
 
         self.txt_synced.setPlainText(result.synced_lyrics)
         self.txt_plain.setPlainText(result.plain_lyrics)
 
         if result.is_synced:
-            self.status_label.setText("✓ Synchronized karaoke lyrics found!")
-            self.status_label.setStyleSheet("color: #4ade80; font-size: 9pt; font-weight: bold;")
+            self.status_label.setText("Synchronized karaoke lyrics found.")
+            self.status_label.setStyleSheet(f"color: {COLOR_SUCCESS}; font-size: 9pt; font-weight: bold;")
             self.tabs.setCurrentIndex(0)
         else:
-            self.status_label.setText("✓ Plain lyrics found (unsynchronized).")
-            self.status_label.setStyleSheet("color: #fbbf24; font-size: 9pt;")
+            self.status_label.setText("Plain lyrics found (unsynchronized).")
+            self.status_label.setStyleSheet(f"color: {COLOR_WARNING}; font-size: 9pt;")
             self.tabs.setCurrentIndex(1)
 
     def _on_fetch_error(self, req_id: int, err_msg: str):
@@ -192,7 +201,7 @@ class LyricsDialog(QDialog):
         self.progress_bar.setVisible(False)
         self.btn_search.setEnabled(True)
         self.status_label.setText(f"Fetch error: {err_msg}")
-        self.status_label.setStyleSheet("color: #ef4444; font-size: 9pt;")
+        self.status_label.setStyleSheet(f"color: {COLOR_DANGER}; font-size: 9pt;")
 
     def _apply_lyrics(self):
         synced_text = self.txt_synced.toPlainText().strip()
@@ -219,3 +228,29 @@ class LyricsDialog(QDialog):
 
         self.applied = True
         self.accept()
+
+    def reject(self):
+        self._request_id += 1
+        if hasattr(self, "signals"):
+            try:
+                self.signals.finished_lyrics.disconnect()
+            except Exception:
+                pass
+            try:
+                self.signals.error_occurred.disconnect()
+            except Exception:
+                pass
+        super().reject()
+
+    def closeEvent(self, event):
+        self._request_id += 1
+        if hasattr(self, "signals"):
+            try:
+                self.signals.finished_lyrics.disconnect()
+            except Exception:
+                pass
+            try:
+                self.signals.error_occurred.disconnect()
+            except Exception:
+                pass
+        super().closeEvent(event)

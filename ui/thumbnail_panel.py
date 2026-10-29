@@ -1,18 +1,19 @@
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent, QPixmap
 from PySide6.QtWidgets import (
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
-    QWidget,
 )
 
 from core.media_item import MediaItem
 from core.tagger import normalize_cover_image
 from ui.frame_grabber_dialog import FrameGrabberDialog
+from ui.icons import get_icon
 from ui.rename_dialog import sanitize_filename
 
 
@@ -21,23 +22,19 @@ class CoverDropLabel(QLabel):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("CoverDropZone")
+        self.setProperty("hasCover", False)
+        self.setFixedSize(120, 120)
         self.setAcceptDrops(True)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setText("No Cover Art\n\n(Drop image here or click 'Choose Image')")
-        self.setStyleSheet("""
-            QLabel {
-                background-color: #18181f;
-                border: 2px dashed #2d2d3d;
-                border-radius: 8px;
-                color: #64748b;
-                font-size: 10pt;
-                padding: 12px;
-            }
-            QLabel:hover {
-                border-color: #3b82f6;
-                color: #94a3b8;
-            }
-        """)
+        self.setWordWrap(True)
+        self.setText("No Artwork\nDrop image")
+
+    def set_has_cover(self, has_cover: bool):
+        if self.property("hasCover") != has_cover:
+            self.setProperty("hasCover", has_cover)
+            self.style().unpolish(self)
+            self.style().polish(self)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
@@ -64,84 +61,110 @@ class CoverDropLabel(QLabel):
         event.ignore()
 
 
-class ThumbnailPanel(QWidget):
+class ThumbnailPanel(QFrame):
     cover_updated = Signal(object, str)  # (bytes or None, mime)
     fetch_online_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("CoverHeaderCard")
         self.current_item: MediaItem | None = None
         self._init_ui()
         self.set_media_item(None)
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        root_layout = QHBoxLayout(self)
+        root_layout.setContentsMargins(12, 10, 12, 10)
+        root_layout.setSpacing(12)
 
-        # Header
-        title = QLabel("COVER ART / THUMBNAIL")
-        title.setStyleSheet("font-weight: bold; color: #94a3b8; font-size: 8.5pt; letter-spacing: 1px;")
-        layout.addWidget(title)
-
-        # Image Drop Label
+        # Left: 120x120 Square Artwork Frame
         self.cover_label = CoverDropLabel()
-        self.cover_label.setMinimumSize(160, 160)
         self.cover_label.image_dropped.connect(self._set_cover_data)
-        layout.addWidget(self.cover_label, 1)
+        root_layout.addWidget(self.cover_label, 0, Qt.AlignmentFlag.AlignTop)
 
-        # Info label (dimensions & size)
-        self.info_label = QLabel("No image loaded")
-        self.info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.info_label.setStyleSheet("color: #64748b; font-size: 8.5pt;")
-        layout.addWidget(self.info_label)
+        # Right: Metadata + Compact Action Rows
+        right_col = QVBoxLayout()
+        right_col.setContentsMargins(0, 0, 0, 0)
+        right_col.setSpacing(6)
 
-        # Button row 1: Choose, Grab Frame, Fetch Online
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        title = QLabel("COVER ARTWORK")
+        title.setObjectName("SectionTitle")
+        header_row.addWidget(title)
+        header_row.addStretch()
+        right_col.addLayout(header_row)
+
+        self.info_label = QLabel("No file selected")
+        self.info_label.setObjectName("CoverMetaBadge")
+        self.info_label.setWordWrap(True)
+        right_col.addWidget(self.info_label)
+
+        right_col.addStretch(1)
+
+        # Row 1: Choose, Fetch, Grab Frame
         btn_row_1 = QHBoxLayout()
         btn_row_1.setSpacing(6)
 
-        self.btn_choose = QPushButton("📁 Choose...")
+        self.btn_choose = QPushButton("Choose")
+        self.btn_choose.setIcon(get_icon("folder", "#cbd5e1", 14))
+        self.btn_choose.setIconSize(QSize(14, 14))
+        self.btn_choose.setToolTip("Choose Cover Image from Disk")
         self.btn_choose.setEnabled(False)
         self.btn_choose.clicked.connect(self._choose_image_file)
         btn_row_1.addWidget(self.btn_choose)
 
-        self.btn_grab = QPushButton("🎬 Grab Frame...")
-        self.btn_grab.setStyleSheet("font-weight: 500;")
-        self.btn_grab.clicked.connect(self._open_frame_grabber)
-        self.btn_grab.setEnabled(False)
-        btn_row_1.addWidget(self.btn_grab)
-
-        self.btn_fetch_online = QPushButton("🌐 Fetch Online...")
-        self.btn_fetch_online.setStyleSheet("font-weight: 500;")
+        self.btn_fetch_online = QPushButton("Fetch")
+        self.btn_fetch_online.setIcon(get_icon("globe", "#cbd5e1", 14))
+        self.btn_fetch_online.setIconSize(QSize(14, 14))
+        self.btn_fetch_online.setToolTip("Fetch Cover Art Online")
         self.btn_fetch_online.clicked.connect(self.fetch_online_requested.emit)
         self.btn_fetch_online.setEnabled(False)
         btn_row_1.addWidget(self.btn_fetch_online)
 
-        layout.addLayout(btn_row_1)
+        self.btn_grab = QPushButton("Frame")
+        self.btn_grab.setIcon(get_icon("camera", "#cbd5e1", 14))
+        self.btn_grab.setIconSize(QSize(14, 14))
+        self.btn_grab.setToolTip("Grab Thumbnail Frame from Video")
+        self.btn_grab.clicked.connect(self._open_frame_grabber)
+        self.btn_grab.setEnabled(False)
+        btn_row_1.addWidget(self.btn_grab)
 
-        # Button row 2: Export & Remove
+        right_col.addLayout(btn_row_1)
+
+        # Row 2: Export & Ghost Remove
         btn_row_2 = QHBoxLayout()
         btn_row_2.setSpacing(6)
 
-        self.btn_export = QPushButton("💾 Export...")
+        self.btn_export = QPushButton("Export")
+        self.btn_export.setIcon(get_icon("download", "#cbd5e1", 14))
+        self.btn_export.setIconSize(QSize(14, 14))
+        self.btn_export.setToolTip("Export Embedded Cover to Disk")
         self.btn_export.clicked.connect(self._export_cover)
         self.btn_export.setEnabled(False)
         btn_row_2.addWidget(self.btn_export)
 
-        self.btn_remove = QPushButton("❌ Remove")
+        self.btn_remove = QPushButton("Remove")
         self.btn_remove.setObjectName("DangerButton")
+        self.btn_remove.setIcon(get_icon("trash", "#cbd5e1", 14))
+        self.btn_remove.setIconSize(QSize(14, 14))
+        self.btn_remove.setToolTip("Remove Embedded Cover Art")
         self.btn_remove.clicked.connect(self._remove_cover)
         self.btn_remove.setEnabled(False)
         btn_row_2.addWidget(self.btn_remove)
 
-        layout.addLayout(btn_row_2)
+        btn_row_2.addStretch(1)
+        right_col.addLayout(btn_row_2)
+
+        root_layout.addLayout(right_col, 1)
 
     def set_media_item(self, item: MediaItem | None):
         self.current_item = item
         if not item:
             self.cover_label.setPixmap(QPixmap())
-            self.cover_label.setText("No file selected")
-            self.info_label.setText("")
+            self.cover_label.set_has_cover(False)
+            self.cover_label.setText("No file\nselected")
+            self.info_label.setText("Select a file to inspect artwork")
             self.btn_choose.setEnabled(False)
             self.btn_grab.setEnabled(False)
             self.btn_fetch_online.setEnabled(False)
@@ -157,21 +180,25 @@ class ThumbnailPanel(QWidget):
     def update_cover_display(self, data: bytes | None, mime: str | None = None):
         if not data:
             self.cover_label.setPixmap(QPixmap())
+            self.cover_label.set_has_cover(False)
             hint = (
-                "Drop image here\nor click 'Grab Video Frame...'"
+                "Drop image\nor grab frame"
                 if (self.current_item and self.current_item.is_video)
-                else "Drop image here\nor click 'Choose Image...'"
+                else "Drop image\nor click Choose"
             )
-            self.cover_label.setText(f"No Cover Art\n\n({hint})")
-            self.info_label.setText("No cover embedded")
+            self.cover_label.setText(f"No Cover\n\n{hint}")
+            self.info_label.setText("No embedded artwork")
             self.btn_export.setEnabled(False)
             self.btn_remove.setEnabled(False)
             return
 
         pix = QPixmap()
         if pix.loadFromData(data):
+            self.cover_label.set_has_cover(True)
             scaled = pix.scaled(
-                self.cover_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                self.cover_label.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
             )
             self.cover_label.setPixmap(scaled)
             size_kb = len(data) / 1024.0
@@ -180,15 +207,11 @@ class ThumbnailPanel(QWidget):
             self.btn_export.setEnabled(True)
             self.btn_remove.setEnabled(True)
         else:
-            self.cover_label.setText("Invalid image data")
-            self.info_label.setText("Corrupt cover")
+            self.cover_label.set_has_cover(False)
+            self.cover_label.setText("Invalid\nimage")
+            self.info_label.setText("Corrupt cover data")
             self.btn_export.setEnabled(False)
             self.btn_remove.setEnabled(True)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.current_item and self.current_item.cover_bytes:
-            self.update_cover_display(self.current_item.cover_bytes, self.current_item.cover_mime)
 
     def _set_cover_data(self, data: bytes | None, mime: str):
         if data:

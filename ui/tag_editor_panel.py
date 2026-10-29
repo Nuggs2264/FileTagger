@@ -1,4 +1,5 @@
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -21,6 +22,8 @@ from PySide6.QtWidgets import (
 )
 
 from core.media_item import STANDARD_TAG_KEYS, MediaItem
+from ui.icons import get_icon
+from ui.theme import COLOR_TEXT_MUTED
 
 COMMON_GENRES = [
     "",
@@ -80,6 +83,11 @@ COMMON_EXTENDED_TAGS = [
 ]
 
 MULTIPLE_PLACEHOLDER = "<keep original / multiple values>"
+FIELD_PLACEHOLDERS = {
+    "year": "YYYY",
+    "track_number": "1/12",
+    "disc_number": "1/2",
+}
 
 
 class AddTagDialog(QDialog):
@@ -129,13 +137,14 @@ class TagEditorPanel(QWidget):
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(0, 6, 0, 0)
+        main_layout.setSpacing(6)
 
         # Header with selection info
         header_row = QHBoxLayout()
+        header_row.setContentsMargins(12, 2, 12, 0)
         self.title_label = QLabel("TAG INSPECTOR")
-        self.title_label.setStyleSheet("font-weight: 700; color: #cbd5e1; font-size: 8.5pt; letter-spacing: 1.2px;")
+        self.title_label.setObjectName("SectionTitle")
         header_row.addWidget(self.title_label)
 
         self.selection_label = QLabel("0 files selected")
@@ -145,6 +154,8 @@ class TagEditorPanel(QWidget):
 
         # Tab Widget for Standard, All/Extended, and Technical Info
         self.tabs = QTabWidget()
+        self.tabs.setIconSize(QSize(14, 14))
+        self.tabs.tabBar().setUsesScrollButtons(False)
 
         # -------------------------------------------------------------
         # Tab 1: Standard Tags
@@ -152,34 +163,36 @@ class TagEditorPanel(QWidget):
         standard_scroll = QScrollArea()
         standard_scroll.setWidgetResizable(True)
         standard_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        standard_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         standard_scroll.setStyleSheet("background: transparent;")
 
         form_widget = QWidget()
+        form_widget.setStyleSheet("background: transparent;")
         form_layout = QGridLayout(form_widget)
-        form_layout.setContentsMargins(10, 8, 10, 12)
+        form_layout.setContentsMargins(10, 4, 10, 6)
         form_layout.setHorizontalSpacing(8)
-        form_layout.setVerticalSpacing(8)
+        form_layout.setVerticalSpacing(5)
         form_layout.setColumnStretch(7, 1)
 
         def _make_section_header(title: str) -> QWidget:
             w = QWidget()
             w_layout = QHBoxLayout(w)
-            w_layout.setContentsMargins(0, 8, 0, 2)
+            w_layout.setContentsMargins(0, 4, 0, 1)
             w_layout.setSpacing(8)
 
             lbl = QLabel(title.upper())
-            lbl.setStyleSheet("font-size: 8pt; font-weight: 700; color: #60a5fa; letter-spacing: 0.8px;")
+            lbl.setStyleSheet("font-size: 7.8pt; font-weight: 700; color: #60a5fa; letter-spacing: 0.8px;")
             w_layout.addWidget(lbl)
 
             line = QFrame()
             line.setFrameShape(QFrame.Shape.HLine)
             line.setFrameShadow(QFrame.Shadow.Plain)
-            line.setStyleSheet("color: #282937; background-color: #282937;")
+            line.setStyleSheet("color: #1e2738; background-color: #1e2738;")
             line.setFixedHeight(1)
             w_layout.addWidget(line, 1)
             return w
 
-        def _make_lbl(text: str, width: int = 86, align_top: bool = False) -> QLabel:
+        def _make_lbl(text: str, width: int = 84, align_top: bool = False) -> QLabel:
             lbl = QLabel(text)
             align = (
                 (Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
@@ -227,27 +240,27 @@ class TagEditorPanel(QWidget):
 
         form_layout.addWidget(_make_lbl("Year:"), row, 0)
         num_row_layout = QHBoxLayout()
-        num_row_layout.setSpacing(10)
+        num_row_layout.setSpacing(6)
         self.txt_year = QLineEdit()
-        self.txt_year.setFixedWidth(76)
+        self.txt_year.setFixedWidth(56)
         self.txt_year.setPlaceholderText("YYYY")
         self._setup_input("year", self.txt_year)
         num_row_layout.addWidget(self.txt_year)
 
-        lbl_track = QLabel("Track #:")
-        lbl_track.setStyleSheet("color: #94a3b8; font-weight: 500; font-size: 9pt;")
+        lbl_track = QLabel("Track:")
+        lbl_track.setStyleSheet("color: #94a3b8; font-weight: 500; font-size: 8.5pt;")
         num_row_layout.addWidget(lbl_track)
         self.txt_track = QLineEdit()
-        self.txt_track.setFixedWidth(70)
+        self.txt_track.setFixedWidth(48)
         self.txt_track.setPlaceholderText("1/12")
         self._setup_input("track_number", self.txt_track)
         num_row_layout.addWidget(self.txt_track)
 
-        lbl_disc = QLabel("Disc #:")
-        lbl_disc.setStyleSheet("color: #94a3b8; font-weight: 500; font-size: 9pt;")
+        lbl_disc = QLabel("Disc:")
+        lbl_disc.setStyleSheet("color: #94a3b8; font-weight: 500; font-size: 8.5pt;")
         num_row_layout.addWidget(lbl_disc)
         self.txt_disc = QLineEdit()
-        self.txt_disc.setFixedWidth(65)
+        self.txt_disc.setFixedWidth(46)
         self.txt_disc.setPlaceholderText("1/2")
         self._setup_input("disc_number", self.txt_disc)
         num_row_layout.addWidget(self.txt_disc)
@@ -277,96 +290,113 @@ class TagEditorPanel(QWidget):
 
         form_layout.addWidget(_make_lbl("Comment:", align_top=True), row, 0)
         self.txt_comment = QTextEdit()
-        self.txt_comment.setMaximumHeight(70)
+        self.txt_comment.setMaximumHeight(50)
         self.txt_comment.textChanged.connect(lambda: self._on_field_edited("comment", self.txt_comment.toPlainText()))
         form_layout.addWidget(self.txt_comment, row, 1, 1, 7)
         row += 1
 
         standard_scroll.setWidget(form_widget)
-        self.tabs.addTab(standard_scroll, "🏷️ Standard Tags")
+        self.tabs.addTab(standard_scroll, get_icon("tag", "#94a3b8", 14), "Standard")
 
         # -------------------------------------------------------------
         # Tab 2: All / Extended Tags
         # -------------------------------------------------------------
         extended_widget = QWidget()
+        extended_widget.setStyleSheet("background: transparent;")
         ext_layout = QVBoxLayout(extended_widget)
-        ext_layout.setContentsMargins(6, 6, 6, 6)
+        ext_layout.setContentsMargins(10, 8, 10, 8)
         ext_layout.setSpacing(6)
 
-        # Extended tag filter
-        ext_search_row = QHBoxLayout()
-        ext_search_row.addWidget(QLabel("🔍"))
+        # Extended tag filter with embedded leading search icon
         self.txt_ext_filter = QLineEdit()
+        self.txt_ext_filter.addAction(get_icon("search", "#64748b", 14), QLineEdit.ActionPosition.LeadingPosition)
         self.txt_ext_filter.setPlaceholderText("Filter tag names or values...")
         self.txt_ext_filter.textChanged.connect(self._filter_extended_table)
         self.txt_ext_filter.setClearButtonEnabled(True)
-        ext_search_row.addWidget(self.txt_ext_filter, 1)
-        ext_layout.addLayout(ext_search_row)
+        ext_layout.addWidget(self.txt_ext_filter)
 
         # Table showing all tags
         self.ext_table = QTableWidget(0, 2)
+        self.ext_table.setObjectName("InspectorTable")
+        self.ext_table.setShowGrid(False)
+        self.ext_table.setWordWrap(False)
+        self.ext_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.ext_table.setHorizontalHeaderLabels(["Tag / Field", "Value"])
         self.ext_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         self.ext_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.ext_table.setColumnWidth(0, 140)
+        self.ext_table.setColumnWidth(0, 145)
         self.ext_table.verticalHeader().setVisible(False)
+        self.ext_table.verticalHeader().setDefaultSectionSize(30)
         self.ext_table.cellChanged.connect(self._on_ext_cell_changed)
         ext_layout.addWidget(self.ext_table, 1)
 
         # Buttons to Add / Delete custom tag
         ext_btn_row = QHBoxLayout()
-        self.btn_add_tag = QPushButton("➕ Add Tag...")
+        ext_btn_row.setSpacing(6)
+        self.btn_add_tag = QPushButton("Add Tag")
+        self.btn_add_tag.setIcon(get_icon("plus", "#cbd5e1", 14))
+        self.btn_add_tag.setIconSize(QSize(14, 14))
         self.btn_add_tag.clicked.connect(self._on_add_tag_clicked)
         ext_btn_row.addWidget(self.btn_add_tag)
 
-        self.btn_del_tag = QPushButton("🗑️ Remove Tag")
+        self.btn_del_tag = QPushButton("Remove Tag")
         self.btn_del_tag.setObjectName("DangerButton")
+        self.btn_del_tag.setIcon(get_icon("trash", "#cbd5e1", 14))
+        self.btn_del_tag.setIconSize(QSize(14, 14))
         self.btn_del_tag.clicked.connect(self._on_remove_tag_clicked)
         ext_btn_row.addWidget(self.btn_del_tag)
         ext_btn_row.addStretch()
 
         ext_layout.addLayout(ext_btn_row)
-        self.tabs.addTab(extended_widget, "📑 All Tags && Metadata")
+        self.tabs.addTab(extended_widget, get_icon("list", "#94a3b8", 14), "All Tags")
 
         # -------------------------------------------------------------
         # Tab 3: Technical Specs
         # -------------------------------------------------------------
         tech_widget = QWidget()
+        tech_widget.setStyleSheet("background: transparent;")
         tech_layout = QVBoxLayout(tech_widget)
-        tech_layout.setContentsMargins(6, 6, 6, 6)
+        tech_layout.setContentsMargins(10, 8, 10, 8)
 
         self.tech_table = QTableWidget(0, 2)
+        self.tech_table.setObjectName("InspectorTable")
+        self.tech_table.setShowGrid(False)
+        self.tech_table.setWordWrap(False)
+        self.tech_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.tech_table.setHorizontalHeaderLabels(["Property", "Details"])
         self.tech_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         self.tech_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.tech_table.setColumnWidth(0, 130)
         self.tech_table.verticalHeader().setVisible(False)
+        self.tech_table.verticalHeader().setDefaultSectionSize(30)
         self.tech_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         tech_layout.addWidget(self.tech_table, 1)
 
-        self.tabs.addTab(tech_widget, "⚙️ Stream && File Specs")
+        self.tabs.addTab(tech_widget, get_icon("cpu", "#94a3b8", 14), "Specs")
 
         main_layout.addWidget(self.tabs, 1)
 
-        # Pinned Sticky Action Footer
-        footer_widget = QWidget()
-        footer_widget.setStyleSheet("background-color: #151620; border-top: 1px solid #282937; border-radius: 4px;")
+        # Sleek Low-Profile Action Footer
+        footer_widget = QFrame()
+        footer_widget.setObjectName("InspectorFooter")
         footer_layout = QHBoxLayout(footer_widget)
-        footer_layout.setContentsMargins(8, 8, 8, 8)
-        footer_layout.setSpacing(10)
+        footer_layout.setContentsMargins(12, 8, 12, 8)
+        footer_layout.setSpacing(8)
 
-        self.btn_revert = QPushButton("↺ Revert")
+        self.btn_revert = QPushButton("Revert")
+        self.btn_revert.setIcon(get_icon("rotate-ccw", "#cbd5e1", 14))
+        self.btn_revert.setIconSize(QSize(14, 14))
         self.btn_revert.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_revert.setStyleSheet("padding: 6px 14px; font-weight: 500;")
         self.btn_revert.clicked.connect(self.revert_requested.emit)
         footer_layout.addWidget(self.btn_revert)
 
         footer_layout.addStretch()
 
-        self.btn_save = QPushButton("💾 Save Changes")
+        self.btn_save = QPushButton("Save Changes")
         self.btn_save.setObjectName("PrimaryButton")
+        self.btn_save.setIcon(get_icon("save", "#ffffff", 14))
+        self.btn_save.setIconSize(QSize(14, 14))
         self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_save.setStyleSheet("font-weight: 700; padding: 7px 18px; font-size: 9.5pt;")
         self.btn_save.clicked.connect(self.save_requested.emit)
         footer_layout.addWidget(self.btn_save)
 
@@ -383,6 +413,20 @@ class TagEditorPanel(QWidget):
             return
         self._modified_keys.add(key)
         self.tags_applied.emit({key: value})
+
+    def _set_standard_field_ui_value(self, key: str, val: str):
+        if key == "comment":
+            self.txt_comment.blockSignals(True)
+            self.txt_comment.setPlainText(val)
+            self.txt_comment.blockSignals(False)
+        elif key == "genre":
+            self.cmb_genre.blockSignals(True)
+            self.cmb_genre.setEditText(val)
+            self.cmb_genre.blockSignals(False)
+        elif key in self._fields:
+            self._fields[key].blockSignals(True)
+            self._fields[key].setText(val)
+            self._fields[key].blockSignals(False)
 
     def set_selected_items(self, items: list[MediaItem]):
         self.selected_items = items
@@ -404,7 +448,7 @@ class TagEditorPanel(QWidget):
             self.selection_label.setText("1 file selected")
             item = items[0]
             for key, widget in self._fields.items():
-                widget.setPlaceholderText("")
+                widget.setPlaceholderText(FIELD_PLACEHOLDERS.get(key, ""))
                 widget.setText(item.tags.get(key, ""))
             self.txt_comment.setPlaceholderText("")
             self.txt_comment.setPlainText(item.tags.get("comment", ""))
@@ -413,7 +457,7 @@ class TagEditorPanel(QWidget):
             for key, widget in self._fields.items():
                 vals = {it.tags.get(key, "") for it in items}
                 if len(vals) == 1:
-                    widget.setPlaceholderText("")
+                    widget.setPlaceholderText(FIELD_PLACEHOLDERS.get(key, ""))
                     widget.setText(next(iter(vals)))
                 else:
                     widget.setText("")
@@ -435,9 +479,9 @@ class TagEditorPanel(QWidget):
         self._is_loading = False
 
     def _clear_fields(self):
-        for widget in self._fields.values():
+        for key, widget in self._fields.items():
             widget.clear()
-            widget.setPlaceholderText("")
+            widget.setPlaceholderText(FIELD_PLACEHOLDERS.get(key, ""))
         self.txt_comment.clear()
         self.txt_comment.setPlaceholderText("")
 
@@ -467,10 +511,13 @@ class TagEditorPanel(QWidget):
             for r, k in enumerate(sorted_keys):
                 v = all_tags[k]
                 item_k = QTableWidgetItem(k)
+                item_k.setForeground(QColor(COLOR_TEXT_MUTED))
+                item_k.setToolTip(k)
                 # Keep standard tags read-only on key name
                 item_k.setFlags(item_k.flags() ^ Qt.ItemFlag.ItemIsEditable)
 
                 item_v = QTableWidgetItem(v)
+                item_v.setToolTip(v)
                 self.ext_table.setItem(r, 0, item_k)
                 self.ext_table.setItem(r, 1, item_v)
         else:
@@ -488,13 +535,17 @@ class TagEditorPanel(QWidget):
                     vals.add(v)
 
                 item_k = QTableWidgetItem(k)
+                item_k.setForeground(QColor(COLOR_TEXT_MUTED))
+                item_k.setToolTip(k)
                 item_k.setFlags(item_k.flags() ^ Qt.ItemFlag.ItemIsEditable)
 
                 if len(vals) == 1:
-                    item_v = QTableWidgetItem(next(iter(vals)))
+                    val_str = next(iter(vals))
+                    item_v = QTableWidgetItem(val_str)
+                    item_v.setToolTip(val_str)
                 else:
                     item_v = QTableWidgetItem(MULTIPLE_PLACEHOLDER)
-                    item_v.setForeground(Qt.GlobalColor.darkGray)
+                    item_v.setForeground(QColor(COLOR_TEXT_MUTED))
 
                 self.ext_table.setItem(r, 0, item_k)
                 self.ext_table.setItem(r, 1, item_v)
@@ -558,7 +609,7 @@ class TagEditorPanel(QWidget):
 
         # If it is a standard tag, also update the standard input field
         if key in STANDARD_TAG_KEYS:
-            self._fields[key].setText(val)
+            self._set_standard_field_ui_value(key, val)
             self.tags_applied.emit({key: val})
         else:
             for it in self.selected_items:
@@ -577,7 +628,7 @@ class TagEditorPanel(QWidget):
 
             if tag.lower() in STANDARD_TAG_KEYS:
                 k = tag.lower()
-                self._fields[k].setText(val)
+                self._set_standard_field_ui_value(k, val)
                 self.tags_applied.emit({k: val})
             else:
                 for it in self.selected_items:
@@ -604,7 +655,7 @@ class TagEditorPanel(QWidget):
         )
         if confirm == QMessageBox.StandardButton.Yes:
             if key in STANDARD_TAG_KEYS:
-                self._fields[key].clear()
+                self._set_standard_field_ui_value(key, "")
                 self.tags_applied.emit({key: ""})
             else:
                 for it in self.selected_items:

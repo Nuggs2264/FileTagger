@@ -1,6 +1,6 @@
 import html
 
-from PySide6.QtCore import QSettings, Qt, QThread, Signal
+from PySide6.QtCore import QSettings, QSize, Qt, QThread, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -32,6 +32,8 @@ from core.online_fetcher import (
     search_tvmaze,
 )
 from core.secure_storage import decrypt_secret, encrypt_secret
+from ui.icons import get_icon
+from ui.theme import COLOR_SUCCESS, COLOR_WARNING
 
 
 class SearchWorker(QThread):
@@ -93,7 +95,7 @@ class DetailWorker(QThread):
 
 
 class OnlineFetcherDialog(QDialog):
-    def __init__(self, initial_query: str = "", parent=None):
+    def __init__(self, initial_query: str = "", parent=None, auto_start: bool = True):
         super().__init__(parent)
         self.settings = QSettings("FileTagger", "FileTagger")
         self.initial_query = clean_search_query(initial_query)
@@ -110,7 +112,7 @@ class OnlineFetcherDialog(QDialog):
         self.resize(880, 620)
         self._init_ui()
 
-        if self.initial_query:
+        if auto_start and self.initial_query:
             self._start_search()
 
     def _init_ui(self):
@@ -124,22 +126,25 @@ class OnlineFetcherDialog(QDialog):
 
         search_row.addWidget(QLabel("Search Query:"))
         self.txt_query = QLineEdit(self.initial_query)
+        self.txt_query.addAction(get_icon("search", "#64748b", 14), QLineEdit.ActionPosition.LeadingPosition)
         self.txt_query.setPlaceholderText("Enter movie or TV show title...")
         self.txt_query.returnPressed.connect(self._start_search)
         search_row.addWidget(self.txt_query, 1)
 
         self.cmb_engine = QComboBox()
-        self.cmb_engine.addItems(["🎬 IMDb & Open Web (No Key)", "📺 TVMaze (TV Shows - No Key)", "🌐 TMDb (API Key)"])
-        saved_engine = self.settings.value("search_engine", "🎬 IMDb & Open Web (No Key)")
-        idx = self.cmb_engine.findText(saved_engine)
-        if idx >= 0:
-            self.cmb_engine.setCurrentIndex(idx)
+        self.cmb_engine.addItems(["IMDb & Open Web (No Key)", "TVMaze (TV Shows - No Key)", "TMDb (API Key)"])
+        saved_engine = str(self.settings.value("search_engine", "IMDb & Open Web (No Key)"))
+        for i in range(self.cmb_engine.count()):
+            if self.cmb_engine.itemText(i) in saved_engine or saved_engine in self.cmb_engine.itemText(i):
+                self.cmb_engine.setCurrentIndex(i)
+                break
         self.cmb_engine.currentTextChanged.connect(self._on_engine_changed)
         search_row.addWidget(self.cmb_engine)
 
-        self.btn_search = QPushButton("🔍 Search")
+        self.btn_search = QPushButton("Search")
         self.btn_search.setObjectName("PrimaryButton")
-        self.btn_search.setStyleSheet("font-weight: bold; padding: 6px 16px;")
+        self.btn_search.setIcon(get_icon("search", "#ffffff", 14))
+        self.btn_search.setIconSize(QSize(14, 14))
         self.btn_search.clicked.connect(self._start_search)
         search_row.addWidget(self.btn_search)
 
@@ -160,19 +165,20 @@ class OnlineFetcherDialog(QDialog):
         self.txt_tmdb_key.textChanged.connect(self._on_tmdb_key_changed)
         self.tmdb_row.addWidget(self.txt_tmdb_key, 1)
 
-        self.btn_save_key = QPushButton("💾 Save Key")
-        self.btn_save_key.setStyleSheet("padding: 4px 14px; font-weight: bold;")
+        self.btn_save_key = QPushButton("Save Key")
+        self.btn_save_key.setIcon(get_icon("save", "#cbd5e1", 14))
+        self.btn_save_key.setIconSize(QSize(14, 14))
         self.btn_save_key.clicked.connect(self._save_tmdb_key)
         self.tmdb_row.addWidget(self.btn_save_key)
 
-        self.lbl_key_status = QLabel("✅ Saved" if saved_key else "")
-        self.lbl_key_status.setStyleSheet("color: #4ade80; font-weight: bold; margin-left: 4px;")
+        self.lbl_key_status = QLabel("Saved" if saved_key else "")
+        self.lbl_key_status.setStyleSheet(f"color: {COLOR_SUCCESS}; font-weight: bold; margin-left: 4px;")
         self.tmdb_row.addWidget(self.lbl_key_status)
 
         tmdb_box_layout.addLayout(self.tmdb_row)
 
         lbl_tmdb_note = QLabel(
-            "<small style='color: #888;'>This product uses the TMDB API but is not endorsed or certified by TMDB.</small>"
+            "<small style='color: #64748b;'>This product uses the TMDB API but is not endorsed or certified by TMDB.</small>"
         )
         tmdb_box_layout.addWidget(lbl_tmdb_note)
 
@@ -200,6 +206,8 @@ class OnlineFetcherDialog(QDialog):
 
         left_layout.addWidget(QLabel("Search Results:"))
         self.table_results = QTableWidget(0, 4)
+        self.table_results.setShowGrid(False)
+        self.table_results.setWordWrap(False)
         self.table_results.setHorizontalHeaderLabels(["Title", "Year", "Type", "Cast / Details"])
         self.table_results.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         self.table_results.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
@@ -207,6 +215,7 @@ class OnlineFetcherDialog(QDialog):
         self.table_results.setColumnWidth(1, 55)
         self.table_results.setColumnWidth(2, 70)
         self.table_results.verticalHeader().setVisible(False)
+        self.table_results.verticalHeader().setDefaultSectionSize(30)
         self.table_results.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table_results.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table_results.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -229,8 +238,8 @@ class OnlineFetcherDialog(QDialog):
         self.lbl_poster.setMinimumSize(180, 240)
         self.lbl_poster.setStyleSheet("""
             QLabel {
-                background-color: #18181f;
-                border: 1px solid #262632;
+                background-color: #0a0d14;
+                border: 1px solid #232e42;
                 border-radius: 6px;
                 color: #64748b;
             }
@@ -242,7 +251,7 @@ class OnlineFetcherDialog(QDialog):
         self.txt_details.setReadOnly(True)
         self.txt_details.setMaximumHeight(140)
         self.txt_details.setStyleSheet(
-            "background-color: #18181f; border: 1px solid #262632; border-radius: 6px; font-size: 9pt;"
+            "background-color: #0a0d14; border: 1px solid #232e42; border-radius: 6px; font-size: 9pt;"
         )
         right_layout.addWidget(self.txt_details)
 
@@ -293,7 +302,8 @@ class OnlineFetcherDialog(QDialog):
 
         self.btn_apply = QPushButton("Apply to Selected File(s)")
         self.btn_apply.setObjectName("PrimaryButton")
-        self.btn_apply.setStyleSheet("font-weight: bold; padding: 7px 20px;")
+        self.btn_apply.setIcon(get_icon("check", "#ffffff", 14))
+        self.btn_apply.setIconSize(QSize(14, 14))
         self.btn_apply.clicked.connect(self._on_apply_clicked)
         self.btn_apply.setEnabled(False)
         bottom_row.addWidget(self.btn_apply)
@@ -308,8 +318,8 @@ class OnlineFetcherDialog(QDialog):
         key = text.strip()
         self.settings.setValue("tmdb_api_key", encrypt_secret(key))
         if key:
-            self.lbl_key_status.setText("✅ Saved")
-            self.lbl_key_status.setStyleSheet("color: #4ade80; font-weight: bold; margin-left: 4px;")
+            self.lbl_key_status.setText("Saved")
+            self.lbl_key_status.setStyleSheet(f"color: {COLOR_SUCCESS}; font-weight: bold; margin-left: 4px;")
         else:
             self.lbl_key_status.setText("")
 
@@ -317,12 +327,12 @@ class OnlineFetcherDialog(QDialog):
         key = self.txt_tmdb_key.text().strip()
         self.settings.setValue("tmdb_api_key", encrypt_secret(key))
         if key:
-            self.lbl_key_status.setText("✅ Saved!")
-            self.lbl_key_status.setStyleSheet("color: #4ade80; font-weight: bold; margin-left: 4px;")
+            self.lbl_key_status.setText("Saved")
+            self.lbl_key_status.setStyleSheet(f"color: {COLOR_SUCCESS}; font-weight: bold; margin-left: 4px;")
             QMessageBox.information(self, "TMDb Key Saved", "Your TMDb API key has been saved successfully.")
         else:
-            self.lbl_key_status.setText("⚠️ Cleared")
-            self.lbl_key_status.setStyleSheet("color: #facc15; margin-left: 4px;")
+            self.lbl_key_status.setText("Cleared")
+            self.lbl_key_status.setStyleSheet(f"color: {COLOR_WARNING}; margin-left: 4px;")
 
     def _on_tmdb_key_enter(self):
         self._save_tmdb_key()
@@ -342,7 +352,7 @@ class OnlineFetcherDialog(QDialog):
             QMessageBox.warning(
                 self,
                 "TMDb Key Required",
-                "Please enter your TMDb API key to use TMDb, or switch to '🎬 IMDb & Open Web (No Key)'.",
+                "Please enter your TMDb API key to use TMDb, or switch to 'IMDb & Open Web (No Key)'.",
             )
             return
 

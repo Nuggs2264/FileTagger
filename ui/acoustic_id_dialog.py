@@ -2,7 +2,7 @@ import html
 import os
 import threading
 
-from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtCore import QObject, QSize, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -26,6 +26,8 @@ from core.audio_fingerprint import (
     search_musicbrainz,
 )
 from core.media_item import MediaItem
+from ui.icons import get_icon
+from ui.theme import COLOR_ACCENT, COLOR_SUCCESS, COLOR_TEXT_MUTED, COLOR_WARNING
 
 
 class AcousticWorkerSignals(QObject):
@@ -34,7 +36,7 @@ class AcousticWorkerSignals(QObject):
 
 
 class AcousticIdDialog(QDialog):
-    def __init__(self, item: MediaItem, parent=None):
+    def __init__(self, item: MediaItem, parent=None, auto_start: bool = True):
         super().__init__(parent)
         self.item = item
         self.matches: list[AudioFingerprintMatch] = []
@@ -43,9 +45,12 @@ class AcousticIdDialog(QDialog):
         self._request_id = 0
 
         self.setWindowTitle("Acoustic Fingerprinting & Audio ID (AcoustID / MusicBrainz)")
-        self.resize(750, 480)
+        self.resize(760, 480)
         self._init_ui()
-        self._start_scan()
+        if auto_start:
+            self._start_scan()
+        else:
+            self.progress_bar.setVisible(False)
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -71,18 +76,21 @@ class AcousticIdDialog(QDialog):
             default_query = os.path.splitext(self.item.file_name)[0]
 
         self.txt_search = QLineEdit(default_query)
+        self.txt_search.addAction(get_icon("search", "#64748b", 14), QLineEdit.ActionPosition.LeadingPosition)
         self.txt_search.setPlaceholderText("Search MusicBrainz (e.g. Artist - Title)...")
         self.txt_search.returnPressed.connect(self._on_manual_search)
         search_row.addWidget(self.txt_search, 1)
 
-        self.btn_search = QPushButton("🔍 Search MusicBrainz")
-        self.btn_search.setStyleSheet("font-weight: bold; padding: 5px 14px;")
+        self.btn_search = QPushButton("Search MusicBrainz")
+        self.btn_search.setIcon(get_icon("search", "#cbd5e1", 14))
+        self.btn_search.setIconSize(QSize(14, 14))
         self.btn_search.clicked.connect(self._on_manual_search)
         search_row.addWidget(self.btn_search)
 
-        self.btn_rescan = QPushButton("🎵 Re-scan Waveform")
+        self.btn_rescan = QPushButton("Re-scan Waveform")
+        self.btn_rescan.setIcon(get_icon("fingerprint", "#cbd5e1", 14))
+        self.btn_rescan.setIconSize(QSize(14, 14))
         self.btn_rescan.setToolTip("Re-run audio waveform fingerprinting on this audio file")
-        self.btn_rescan.setStyleSheet("padding: 5px 14px;")
         self.btn_rescan.clicked.connect(self._start_scan)
         search_row.addWidget(self.btn_rescan)
 
@@ -90,7 +98,7 @@ class AcousticIdDialog(QDialog):
 
         # Progress / Status
         self.status_label = QLabel("Computing Chromaprint audio waveform fingerprint...")
-        self.status_label.setStyleSheet("color: #38bdf8; font-size: 9pt;")
+        self.status_label.setStyleSheet(f"color: {COLOR_ACCENT}; font-size: 9pt;")
         layout.addWidget(self.status_label)
 
         self.progress_bar = QProgressBar()
@@ -99,11 +107,15 @@ class AcousticIdDialog(QDialog):
 
         # Results Table
         self.table = QTableWidget(0, 8)
+        self.table.setShowGrid(False)
+        self.table.setWordWrap(False)
         self.table.setHorizontalHeaderLabels(
             ["Confidence", "Source", "Title", "Artist", "Album", "Year", "Track", "MBID"]
         )
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(30)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
@@ -150,7 +162,9 @@ class AcousticIdDialog(QDialog):
         btn_row.addWidget(self.btn_cancel)
 
         self.btn_apply = QPushButton("Apply to Track")
-        self.btn_apply.setStyleSheet("font-weight: bold; padding: 7px 20px;")
+        self.btn_apply.setObjectName("PrimaryButton")
+        self.btn_apply.setIcon(get_icon("check", "#ffffff", 14))
+        self.btn_apply.setIconSize(QSize(14, 14))
         self.btn_apply.setEnabled(False)
         self.btn_apply.clicked.connect(self._apply_selected)
         btn_row.addWidget(self.btn_apply)
@@ -244,14 +258,14 @@ class AcousticIdDialog(QDialog):
 
         is_waveform = any(m.source.startswith("AcoustID") for m in matches)
         if is_waveform:
-            self.status_label.setText(f"✅ Verified audio waveform match via AcoustID ({len(matches)} track(s) found):")
-            self.status_label.setStyleSheet("color: #4ade80; font-size: 9pt; font-weight: bold;")
+            self.status_label.setText(f"Verified audio waveform match via AcoustID ({len(matches)} track(s) found):")
+            self.status_label.setStyleSheet(f"color: {COLOR_SUCCESS}; font-size: 9pt; font-weight: bold;")
         else:
             search_term = self.txt_search.text().strip()
             self.status_label.setText(
-                f"ℹ️ No acoustic waveform match in AcoustID database. Showing MusicBrainz results for '{search_term}' ({len(matches)} match(es)):"
+                f"No acoustic waveform match in AcoustID database. Showing MusicBrainz results for '{search_term}' ({len(matches)} match(es)):"
             )
-            self.status_label.setStyleSheet("color: #38bdf8; font-size: 9pt;")
+            self.status_label.setStyleSheet(f"color: {COLOR_ACCENT}; font-size: 9pt;")
 
         self.table.setRowCount(len(matches))
         for row, m in enumerate(matches):
@@ -259,18 +273,18 @@ class AcousticIdDialog(QDialog):
             item_conf = QTableWidgetItem(conf_str)
             item_conf.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             if m.score >= 0.8:
-                item_conf.setForeground(Qt.GlobalColor.green)
+                item_conf.setForeground(QColor(COLOR_SUCCESS))
             else:
-                item_conf.setForeground(Qt.GlobalColor.yellow)
+                item_conf.setForeground(QColor(COLOR_WARNING))
 
             # Source badge
-            src_str = "🎧 AcoustID" if m.source.startswith("AcoustID") else "🔍 MusicBrainz"
+            src_str = "AcoustID" if m.source.startswith("AcoustID") else "MusicBrainz"
             item_src = QTableWidgetItem(src_str)
             item_src.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             if m.source.startswith("AcoustID"):
-                item_src.setForeground(QColor("#38bdf8"))
+                item_src.setForeground(QColor(COLOR_ACCENT))
             else:
-                item_src.setForeground(QColor("#94a3b8"))
+                item_src.setForeground(QColor(COLOR_TEXT_MUTED))
 
             self.table.setItem(row, 0, item_conf)
             self.table.setItem(row, 1, item_src)
@@ -332,3 +346,29 @@ class AcousticIdDialog(QDialog):
         self.item.mark_dirty()
         self.applied = True
         self.accept()
+
+    def reject(self):
+        self._request_id += 1
+        if hasattr(self, "signals"):
+            try:
+                self.signals.finished_matches.disconnect()
+            except Exception:
+                pass
+            try:
+                self.signals.error_occurred.disconnect()
+            except Exception:
+                pass
+        super().reject()
+
+    def closeEvent(self, event):
+        self._request_id += 1
+        if hasattr(self, "signals"):
+            try:
+                self.signals.finished_matches.disconnect()
+            except Exception:
+                pass
+            try:
+                self.signals.error_occurred.disconnect()
+            except Exception:
+                pass
+        super().closeEvent(event)
