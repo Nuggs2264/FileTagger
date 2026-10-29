@@ -1,25 +1,36 @@
 import os
 import threading
-from typing import Optional
-from PySide6.QtCore import Qt, QObject, Signal
+
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QTextEdit, QTabWidget, QCheckBox,
-    QProgressBar, QMessageBox, QGroupBox
+    QCheckBox,
+    QDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
 )
 
+from core.lyrics_fetcher import LyricsResult, fetch_lyrics, save_lrc_file
 from core.media_item import MediaItem
-from core.lyrics_fetcher import fetch_lyrics, save_lrc_file, LyricsResult
+
 
 class LyricsWorkerSignals(QObject):
     finished_lyrics = Signal(int, object)
     error_occurred = Signal(int, str)
 
+
 class LyricsDialog(QDialog):
     def __init__(self, item: MediaItem, parent=None):
         super().__init__(parent)
         self.item = item
-        self.lyrics_result: Optional[LyricsResult] = None
+        self.lyrics_result: LyricsResult | None = None
         self.applied = False
         self._request_id = 0
 
@@ -71,7 +82,7 @@ class LyricsDialog(QDialog):
 
         # Tabs for Synced & Plain Lyrics
         self.tabs = QTabWidget()
-        
+
         self.txt_synced = QTextEdit()
         self.txt_synced.setPlaceholderText("Timestamped lyrics [mm:ss.xx] will appear here...")
         self.txt_synced.setStyleSheet("font-family: Consolas, monospace; font-size: 9.5pt;")
@@ -134,6 +145,7 @@ class LyricsDialog(QDialog):
         self.signals = signals
 
         duration = self.item.duration
+
         def _fetch_target():
             try:
                 res = fetch_lyrics(title, artist, album, duration)
@@ -150,7 +162,7 @@ class LyricsDialog(QDialog):
         t = threading.Thread(target=_fetch_target, daemon=True)
         t.start()
 
-    def _on_lyrics_ready(self, req_id: int, result: Optional[LyricsResult]):
+    def _on_lyrics_ready(self, req_id: int, result: LyricsResult | None):
         if req_id != self._request_id:
             return
         self.progress_bar.setVisible(False)
@@ -201,11 +213,7 @@ class LyricsDialog(QDialog):
         if self.chk_save_lrc.isChecked() and lyrics_to_save:
             try:
                 lrc_path = save_lrc_file(self.item.file_path, lyrics_to_save)
-                QMessageBox.information(
-                    self,
-                    "Saved",
-                    f"Lyrics saved to:\n{os.path.basename(lrc_path)}"
-                )
+                QMessageBox.information(self, "Saved", f"Lyrics saved to:\n{os.path.basename(lrc_path)}")
             except Exception as e:
                 QMessageBox.warning(self, "LRC File Error", f"Failed to save .lrc file:\n{e}")
 

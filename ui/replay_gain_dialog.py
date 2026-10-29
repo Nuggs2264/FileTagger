@@ -1,17 +1,29 @@
 import threading
-from typing import List, Tuple, Dict
-from PySide6.QtCore import Qt, QObject, Signal
+
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QHeaderView, QRadioButton,
-    QProgressBar, QMessageBox, QGroupBox, QButtonGroup
+    QDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QRadioButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
 )
 
 from core.media_item import MediaItem
 from core.replay_gain import (
-    scan_track_loudness, format_replaygain_track, format_replaygain_album,
-    apply_replaygain_tags
+    apply_replaygain_tags,
+    format_replaygain_album,
+    format_replaygain_track,
+    scan_track_loudness,
 )
+
 
 class ReplayGainWorkerSignals(QObject):
     track_scanned = Signal(int, str, float, float, str, str)  # idx, path, lufs, peak_db, gain, peak
@@ -19,11 +31,12 @@ class ReplayGainWorkerSignals(QObject):
     progress_updated = Signal(int, int, str)  # current, total, name
     error_occurred = Signal(str, str)  # filename, error
 
+
 class ReplayGainDialog(QDialog):
-    def __init__(self, items: List[MediaItem], parent=None):
+    def __init__(self, items: list[MediaItem], parent=None):
         super().__init__(parent)
         self.items = items
-        self.track_results: Dict[int, Tuple[str, str]] = {}  # idx -> (track_gain, track_peak)
+        self.track_results: dict[int, tuple[str, str]] = {}  # idx -> (track_gain, track_peak)
         self.album_gain: str = ""
         self.album_peak: str = ""
         self.applied = False
@@ -63,9 +76,9 @@ class ReplayGainDialog(QDialog):
 
         # Results Table
         self.table = QTableWidget(len(self.items), 6)
-        self.table.setHorizontalHeaderLabels([
-            "File", "Loudness (LUFS)", "True Peak (dBFS)", "Track Gain", "Track Peak", "Album Gain"
-        ])
+        self.table.setHorizontalHeaderLabels(
+            ["File", "Loudness (LUFS)", "True Peak (dBFS)", "Track Gain", "Track Peak", "Album Gain"]
+        )
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -126,7 +139,7 @@ class ReplayGainDialog(QDialog):
 
         def _scan_worker():
             total = len(items_copy)
-            track_scans: List[Tuple[float, float, float]] = []
+            track_scans: list[tuple[float, float, float]] = []
 
             for idx, item in enumerate(items_copy):
                 if self._is_cancelled:
@@ -183,11 +196,11 @@ class ReplayGainDialog(QDialog):
         self.track_results[idx] = (gain, peak)
         self.table.setItem(idx, 1, QTableWidgetItem(f"{lufs:.2f} LUFS"))
         self.table.setItem(idx, 2, QTableWidgetItem(f"{peak_db:.2f} dBFS"))
-        
+
         gain_item = QTableWidgetItem(gain)
         gain_item.setForeground(Qt.GlobalColor.cyan)
         self.table.setItem(idx, 3, gain_item)
-        
+
         self.table.setItem(idx, 4, QTableWidgetItem(peak))
 
     def _on_all_scanned(self, album_gain: str, album_peak: str):
@@ -230,7 +243,7 @@ class ReplayGainDialog(QDialog):
             self,
             "ReplayGain Applied",
             f"Successfully applied ReplayGain tags to {len(self.track_results)} file(s)!\n"
-            "Press 'Save Changes' or Ctrl+S to write tags to disk."
+            "Press 'Save Changes' or Ctrl+S to write tags to disk.",
         )
         self.accept()
 

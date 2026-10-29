@@ -1,18 +1,58 @@
-from typing import List, Optional, Dict
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-    QLineEdit, QTextEdit, QComboBox, QPushButton, QScrollArea,
-    QFrame, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
-    QDialog, QDialogButtonBox, QMessageBox
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-from core.media_item import MediaItem, STANDARD_TAG_KEYS
+
+from core.media_item import STANDARD_TAG_KEYS, MediaItem
 
 COMMON_GENRES = [
-    "", "Acoustic", "Alternative", "Ambient", "Blues", "Classical", "Country",
-    "Dance", "Electronic", "Folk", "Funk", "Hip-Hop", "Indie", "Instrumental",
-    "Jazz", "Lo-Fi", "Metal", "Orchestral", "Pop", "Podcast", "Punk", "R&B",
-    "Rap", "Reggae", "Rock", "Score", "Soul", "Soundtrack", "Spoken Word", "Vlog"
+    "",
+    "Acoustic",
+    "Alternative",
+    "Ambient",
+    "Blues",
+    "Classical",
+    "Country",
+    "Dance",
+    "Electronic",
+    "Folk",
+    "Funk",
+    "Hip-Hop",
+    "Indie",
+    "Instrumental",
+    "Jazz",
+    "Lo-Fi",
+    "Metal",
+    "Orchestral",
+    "Pop",
+    "Podcast",
+    "Punk",
+    "R&B",
+    "Rap",
+    "Reggae",
+    "Rock",
+    "Score",
+    "Soul",
+    "Soundtrack",
+    "Spoken Word",
+    "Vlog",
 ]
 
 COMMON_EXTENDED_TAGS = [
@@ -36,10 +76,11 @@ COMMON_EXTENDED_TAGS = [
     "artist_sort",
     "album_sort",
     "title_sort",
-    "compilation"
+    "compilation",
 ]
 
 MULTIPLE_PLACEHOLDER = "<keep original / multiple values>"
+
 
 class AddTagDialog(QDialog):
     def __init__(self, parent=None):
@@ -71,6 +112,7 @@ class AddTagDialog(QDialog):
     def get_tag_and_value(self):
         return self.cmb_tag.currentText().strip(), self.txt_val.text().strip()
 
+
 class TagEditorPanel(QWidget):
     tags_applied = Signal(dict)
     save_requested = Signal()
@@ -78,8 +120,8 @@ class TagEditorPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.selected_items: List[MediaItem] = []
-        self._fields: Dict[str, QLineEdit] = {}
+        self.selected_items: list[MediaItem] = []
+        self._fields: dict[str, QLineEdit] = {}
         self._modified_keys = set()
         self._is_loading = False
 
@@ -93,11 +135,11 @@ class TagEditorPanel(QWidget):
         # Header with selection info
         header_row = QHBoxLayout()
         self.title_label = QLabel("TAG INSPECTOR")
-        self.title_label.setStyleSheet("font-weight: bold; color: #94a3b8; font-size: 8.5pt; letter-spacing: 1px;")
+        self.title_label.setStyleSheet("font-weight: 700; color: #cbd5e1; font-size: 8.5pt; letter-spacing: 1.2px;")
         header_row.addWidget(self.title_label)
 
         self.selection_label = QLabel("0 files selected")
-        self.selection_label.setStyleSheet("color: #64748b; font-size: 8.5pt;")
+        self.selection_label.setStyleSheet("color: #94a3b8; font-size: 8.5pt; font-weight: 500;")
         header_row.addWidget(self.selection_label, 0, Qt.AlignmentFlag.AlignRight)
         main_layout.addLayout(header_row)
 
@@ -114,20 +156,47 @@ class TagEditorPanel(QWidget):
 
         form_widget = QWidget()
         form_layout = QGridLayout(form_widget)
-        form_layout.setContentsMargins(10, 10, 10, 10)
+        form_layout.setContentsMargins(10, 8, 10, 12)
         form_layout.setHorizontalSpacing(8)
-        form_layout.setVerticalSpacing(10)
+        form_layout.setVerticalSpacing(8)
         form_layout.setColumnStretch(7, 1)
 
-        def _make_lbl(text: str, width: int = 85, align_top: bool = False) -> QLabel:
+        def _make_section_header(title: str) -> QWidget:
+            w = QWidget()
+            w_layout = QHBoxLayout(w)
+            w_layout.setContentsMargins(0, 8, 0, 2)
+            w_layout.setSpacing(8)
+
+            lbl = QLabel(title.upper())
+            lbl.setStyleSheet("font-size: 8pt; font-weight: 700; color: #60a5fa; letter-spacing: 0.8px;")
+            w_layout.addWidget(lbl)
+
+            line = QFrame()
+            line.setFrameShape(QFrame.Shape.HLine)
+            line.setFrameShadow(QFrame.Shadow.Plain)
+            line.setStyleSheet("color: #282937; background-color: #282937;")
+            line.setFixedHeight(1)
+            w_layout.addWidget(line, 1)
+            return w
+
+        def _make_lbl(text: str, width: int = 86, align_top: bool = False) -> QLabel:
             lbl = QLabel(text)
-            align = (Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop) if align_top else (Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            align = (
+                (Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+                if align_top
+                else (Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            )
             lbl.setAlignment(align)
             lbl.setStyleSheet("color: #94a3b8; font-weight: 500; font-size: 9pt;")
             lbl.setFixedWidth(width)
             return lbl
 
         row = 0
+
+        # Section 1: General Info
+        form_layout.addWidget(_make_section_header("General Info"), row, 0, 1, 8)
+        row += 1
+
         form_layout.addWidget(_make_lbl("Title:"), row, 0)
         self.txt_title = QLineEdit()
         self._setup_input("title", self.txt_title)
@@ -152,7 +221,10 @@ class TagEditorPanel(QWidget):
         form_layout.addWidget(self.txt_album_artist, row, 1, 1, 7)
         row += 1
 
-        # Numbers row: Year, Track #, Disc #
+        # Section 2: Release & Track
+        form_layout.addWidget(_make_section_header("Release & Track"), row, 0, 1, 8)
+        row += 1
+
         form_layout.addWidget(_make_lbl("Year:"), row, 0)
         num_row_layout = QHBoxLayout()
         num_row_layout.setSpacing(10)
@@ -184,7 +256,6 @@ class TagEditorPanel(QWidget):
         form_layout.addLayout(num_row_layout, row, 1, 1, 7)
         row += 1
 
-        # Dedicated Genre row
         form_layout.addWidget(_make_lbl("Genre:"), row, 0)
         self.cmb_genre = QComboBox()
         self.cmb_genre.setEditable(True)
@@ -192,6 +263,10 @@ class TagEditorPanel(QWidget):
         self._fields["genre"] = self.cmb_genre.lineEdit()
         self.cmb_genre.currentTextChanged.connect(lambda txt: self._on_field_edited("genre", txt))
         form_layout.addWidget(self.cmb_genre, row, 1, 1, 7)
+        row += 1
+
+        # Section 3: Details & Notes
+        form_layout.addWidget(_make_section_header("Details & Notes"), row, 0, 1, 8)
         row += 1
 
         form_layout.addWidget(_make_lbl("Composer:"), row, 0)
@@ -273,21 +348,29 @@ class TagEditorPanel(QWidget):
 
         main_layout.addWidget(self.tabs, 1)
 
-        # Action Buttons
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(8)
+        # Pinned Sticky Action Footer
+        footer_widget = QWidget()
+        footer_widget.setStyleSheet("background-color: #151620; border-top: 1px solid #282937; border-radius: 4px;")
+        footer_layout = QHBoxLayout(footer_widget)
+        footer_layout.setContentsMargins(8, 8, 8, 8)
+        footer_layout.setSpacing(10)
 
-        self.btn_revert = QPushButton("↩ Revert")
+        self.btn_revert = QPushButton("↺ Revert")
+        self.btn_revert.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_revert.setStyleSheet("padding: 6px 14px; font-weight: 500;")
         self.btn_revert.clicked.connect(self.revert_requested.emit)
-        btn_layout.addWidget(self.btn_revert)
+        footer_layout.addWidget(self.btn_revert)
+
+        footer_layout.addStretch()
 
         self.btn_save = QPushButton("💾 Save Changes")
         self.btn_save.setObjectName("PrimaryButton")
-        self.btn_save.setStyleSheet("font-weight: bold; padding: 7px 16px;")
+        self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_save.setStyleSheet("font-weight: 700; padding: 7px 18px; font-size: 9.5pt;")
         self.btn_save.clicked.connect(self.save_requested.emit)
-        btn_layout.addWidget(self.btn_save)
+        footer_layout.addWidget(self.btn_save)
 
-        main_layout.addLayout(btn_layout)
+        main_layout.addWidget(footer_widget)
 
         self.setEnabled(False)
 
@@ -301,7 +384,7 @@ class TagEditorPanel(QWidget):
         self._modified_keys.add(key)
         self.tags_applied.emit({key: value})
 
-    def set_selected_items(self, items: List[MediaItem]):
+    def set_selected_items(self, items: list[MediaItem]):
         self.selected_items = items
         self._modified_keys.clear()
         self._is_loading = True
@@ -366,7 +449,7 @@ class TagEditorPanel(QWidget):
     def _clear_tech_table(self):
         self.tech_table.setRowCount(0)
 
-    def _populate_extended_table(self, items: List[MediaItem]):
+    def _populate_extended_table(self, items: list[MediaItem]):
         self.ext_table.blockSignals(True)
         self.ext_table.setRowCount(0)
 
@@ -429,7 +512,7 @@ class TagEditorPanel(QWidget):
             match = (not query) or (query in k_txt) or (query in v_txt)
             self.ext_table.setRowHidden(r, not match)
 
-    def _populate_tech_table(self, items: List[MediaItem]):
+    def _populate_tech_table(self, items: list[MediaItem]):
         self.tech_table.setRowCount(0)
         if not items:
             return
@@ -517,7 +600,7 @@ class TagEditorPanel(QWidget):
             self,
             "Remove Tag",
             f"Are you sure you want to remove the tag '{key}' from selected file(s)?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm == QMessageBox.StandardButton.Yes:
             if key in STANDARD_TAG_KEYS:

@@ -1,14 +1,12 @@
 import base64
-import os
 import ctypes
+import os
 from ctypes import wintypes
-from typing import Optional
+
 
 class DATA_BLOB(ctypes.Structure):
-    _fields_ = [
-        ("cbData", wintypes.DWORD),
-        ("pbData", ctypes.POINTER(ctypes.c_char))
-    ]
+    _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
 
 def encrypt_secret(plaintext: str) -> str:
     """Encrypts a sensitive secret string at rest using Windows DPAPI.
@@ -31,7 +29,7 @@ def encrypt_secret(plaintext: str) -> str:
             None,
             None,
             0x1,  # CRYPTPROTECT_UI_FORBIDDEN
-            ctypes.byref(out_blob)
+            ctypes.byref(out_blob),
         )
         if not res:
             return plaintext
@@ -42,6 +40,7 @@ def encrypt_secret(plaintext: str) -> str:
             ctypes.windll.kernel32.LocalFree(out_blob.pbData)
     except Exception:
         return plaintext
+
 
 def decrypt_secret(ciphertext: str) -> str:
     """Decrypts a DPAPI-encrypted secret string.
@@ -58,7 +57,9 @@ def decrypt_secret(ciphertext: str) -> str:
     try:
         raw_b64 = ciphertext[6:]
         encrypted_bytes = base64.b64decode(raw_b64)
-        in_blob = DATA_BLOB(len(encrypted_bytes), ctypes.cast(ctypes.c_char_p(encrypted_bytes), ctypes.POINTER(ctypes.c_char)))
+        in_blob = DATA_BLOB(
+            len(encrypted_bytes), ctypes.cast(ctypes.c_char_p(encrypted_bytes), ctypes.POINTER(ctypes.c_char))
+        )
         out_blob = DATA_BLOB()
         res = ctypes.windll.crypt32.CryptUnprotectData(
             ctypes.byref(in_blob),
@@ -67,7 +68,7 @@ def decrypt_secret(ciphertext: str) -> str:
             None,
             None,
             0x1,  # CRYPTPROTECT_UI_FORBIDDEN
-            ctypes.byref(out_blob)
+            ctypes.byref(out_blob),
         )
         if not res:
             return ""

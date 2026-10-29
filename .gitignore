@@ -56,3 +56,8 @@ test_scratch*
 .vscode/
 .idea/
 .gemini/
+
+# Local Workspace Customizations & Agent Config
+.agents/
+mcp_config.json
+skills-lock.json

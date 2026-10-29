@@ -1,33 +1,60 @@
 import os
 import re
-from typing import List, Set
 
-from PySide6.QtCore import Qt, QSortFilterProxyModel, QRegularExpression, QThread, Signal, QEventLoop
-from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QTableView, QToolBar, QMenuBar, QMenu, QStatusBar,
-    QFileDialog, QMessageBox, QLineEdit, QTextEdit, QLabel, QHeaderView,
-    QProgressDialog, QApplication, QDialog
+from PySide6.QtCore import (
+    QEventLoop,
+    QRegularExpression,
+    QSortFilterProxyModel,
+    Qt,
+    QThread,
+    Signal,
 )
-from PySide6.QtGui import QAction, QKeySequence, QDragEnterEvent, QDropEvent, QPainter, QColor, QFont
+from PySide6.QtGui import (
+    QAction,
+    QDragEnterEvent,
+    QDropEvent,
+    QKeySequence,
+)
+from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QProgressDialog,
+    QPushButton,
+    QSplitter,
+    QStatusBar,
+    QTableView,
+    QTextEdit,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+)
 
-from core.media_item import MediaItem, SUPPORTED_EXTENSIONS
-from core.tagger import read_media_item, save_media_item, normalize_cover_image
-from ui.file_table_model import FileTableModel, COLUMNS
+from core.media_item import SUPPORTED_EXTENSIONS, MediaItem
+from core.tagger import normalize_cover_image, read_media_item, save_media_item
+from ui.acoustic_id_dialog import AcousticIdDialog
+from ui.file_table_model import COLUMNS, FileTableModel
+from ui.lyrics_dialog import LyricsDialog
+from ui.music_fetcher_dialog import MusicFetcherDialog
+from ui.online_fetcher_dialog import OnlineFetcherDialog
+from ui.rename_dialog import RenameDialog
+from ui.replay_gain_dialog import ReplayGainDialog
 from ui.tag_editor_panel import TagEditorPanel
 from ui.thumbnail_panel import ThumbnailPanel
-from ui.rename_dialog import RenameDialog
-from ui.online_fetcher_dialog import OnlineFetcherDialog
-from ui.acoustic_id_dialog import AcousticIdDialog
-from ui.lyrics_dialog import LyricsDialog
-from ui.replay_gain_dialog import ReplayGainDialog
-from ui.music_fetcher_dialog import MusicFetcherDialog
+
 
 class SaveWorker(QThread):
     progress = Signal(int, int, str)
     finished_save = Signal(int, list, bool)
 
-    def __init__(self, items: List[MediaItem], parent=None):
+    def __init__(self, items: list[MediaItem], parent=None):
         super().__init__(parent)
         self.items = items
         self._is_cancelled = False
@@ -48,11 +75,15 @@ class SaveWorker(QThread):
             if save_media_item(item):
                 saved_count += 1
             else:
-                error_items.append((item.file_name, item.error))
+                error_items.append(
+                    (item.file_name, item.error or "Unknown save error", getattr(item, "detailed_error", ""))
+                )
         self.finished_save.emit(saved_count, error_items, cancelled)
+
 
 class FileSearchFilterProxyModel(QSortFilterProxyModel):
     """Filters table rows across multiple columns (Filename, Title, Artist, Album)."""
+
     def filterAcceptsRow(self, source_row: int, source_parent) -> bool:
         regex = self.filterRegularExpression()
         if not regex.pattern():
@@ -67,22 +98,124 @@ class FileSearchFilterProxyModel(QSortFilterProxyModel):
                 return True
         return False
 
+
+class TableEmptyStateWidget(QWidget):
+    """Interactive card overlay shown in the table viewport when no media files are loaded."""
+
+    add_files_requested = Signal()
+    add_folder_requested = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        card = QFrame()
+        card.setObjectName("EmptyStateCard")
+        card.setFixedWidth(440)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(28, 28, 28, 28)
+        card_layout.setSpacing(12)
+        card_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Icon badge
+        lbl_icon = QLabel("🎵")
+        lbl_icon.setStyleSheet("font-size: 32pt; background: transparent;")
+        lbl_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(lbl_icon)
+
+        # Title
+        lbl_title = QLabel("No Media Files Loaded")
+        lbl_title.setObjectName("EmptyStateTitle")
+        lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(lbl_title)
+
+        # Subtitle
+        lbl_sub = QLabel("Drag & drop audio or video files anywhere here,\nor use the buttons below to open media.")
+        lbl_sub.setObjectName("EmptyStateSub")
+        lbl_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_sub.setWordWrap(True)
+        card_layout.addWidget(lbl_sub)
+
+        card_layout.addSpacing(4)
+
+        # Action Buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
+        btn_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.btn_files = QPushButton("📂 Add Files...")
+        self.btn_files.setObjectName("PrimaryButton")
+        self.btn_files.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_files.setStyleSheet("padding: 8px 18px; font-weight: 600; font-size: 9.5pt;")
+        self.btn_files.clicked.connect(self.add_files_requested.emit)
+        btn_row.addWidget(self.btn_files)
+
+        self.btn_folder = QPushButton("📁 Add Folder...")
+        self.btn_folder.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_folder.setStyleSheet("padding: 8px 18px; font-weight: 600; font-size: 9.5pt;")
+        self.btn_folder.clicked.connect(self.add_folder_requested.emit)
+        btn_row.addWidget(self.btn_folder)
+
+        card_layout.addLayout(btn_row)
+
+        # Keyboard shortcuts hint
+        kbd_row = QHBoxLayout()
+        kbd_row.setSpacing(10)
+        kbd_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        kbd_f = QLabel("Ctrl+O  (Files)")
+        kbd_f.setObjectName("EmptyStateKbd")
+        kbd_row.addWidget(kbd_f)
+
+        kbd_d = QLabel("Ctrl+Shift+O  (Folder)")
+        kbd_d.setObjectName("EmptyStateKbd")
+        kbd_row.addWidget(kbd_d)
+
+        card_layout.addLayout(kbd_row)
+        layout.addWidget(card)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        win = self.window()
+        if win and hasattr(win, "dragEnterEvent"):
+            win.dragEnterEvent(event)
+        else:
+            event.ignore()
+
+    def dropEvent(self, event: QDropEvent):
+        win = self.window()
+        if win and hasattr(win, "dropEvent"):
+            win.dropEvent(event)
+        else:
+            event.ignore()
+
+
 class FileTableView(QTableView):
-    """QTableView with an empty-state overlay when no files are loaded."""
-    def paintEvent(self, event):
-        super().paintEvent(event)
+    """QTableView with an interactive empty-state overlay card when no files are loaded."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.empty_state = TableEmptyStateWidget(self.viewport())
+        self.empty_state.hide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "empty_state") and self.empty_state:
+            self.empty_state.setGeometry(self.viewport().rect())
+
+    def update_empty_state(self):
         model = self.model()
         if model is None or model.rowCount() == 0:
-            painter = QPainter(self.viewport())
-            painter.setPen(QColor("#64748b"))
-            font = QFont("Segoe UI", 10)
-            painter.setFont(font)
-            text = (
-                "📂 No media files loaded\n\n"
-                "Drag & drop media files or folders here\n"
-                "or press Ctrl+O to add files, Ctrl+Shift+O to add a folder"
-            )
-            painter.drawText(self.viewport().rect(), Qt.AlignmentFlag.AlignCenter, text)
+            self.empty_state.setGeometry(self.viewport().rect())
+            self.empty_state.show()
+        else:
+            self.empty_state.hide()
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -99,6 +232,7 @@ class MainWindow(QMainWindow):
         self._init_ui()
         self._create_actions_and_menus()
         self._update_status_bar()
+        self.table_view.update_empty_state()
 
     def _init_ui(self):
         central_widget = QWidget()
@@ -123,6 +257,11 @@ class MainWindow(QMainWindow):
         # Left side: File Table
         self.table_view = FileTableView()
         self.table_view.setModel(self.proxy_model)
+        self.table_view.empty_state.add_files_requested.connect(self.add_files_dialog)
+        self.table_view.empty_state.add_folder_requested.connect(self.add_folder_dialog)
+        self.proxy_model.modelReset.connect(self.table_view.update_empty_state)
+        self.proxy_model.rowsInserted.connect(lambda *_: self.table_view.update_empty_state())
+        self.proxy_model.rowsRemoved.connect(lambda *_: self.table_view.update_empty_state())
         self.table_view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.table_view.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
         self.table_view.setAlternatingRowColors(True)
@@ -132,13 +271,13 @@ class MainWindow(QMainWindow):
         self.table_view.horizontalHeader().setStretchLastSection(True)
 
         # Set default column widths
-        for col_idx, (name, width) in enumerate(COLUMNS):
+        for col_idx, (_name, width) in enumerate(COLUMNS):
             self.table_view.setColumnWidth(col_idx, width)
 
         self.table_view.setEditTriggers(
-            QTableView.EditTrigger.DoubleClicked |
-            QTableView.EditTrigger.EditKeyPressed |
-            QTableView.EditTrigger.SelectedClicked
+            QTableView.EditTrigger.DoubleClicked
+            | QTableView.EditTrigger.EditKeyPressed
+            | QTableView.EditTrigger.SelectedClicked
         )
 
         self.table_view.selectionModel().selectionChanged.connect(self._on_selection_changed)
@@ -149,7 +288,7 @@ class MainWindow(QMainWindow):
 
         # Right side: Inspector Panel (vertical splitter for Tag Editor + Thumbnail Panel)
         self.inspector_splitter = QSplitter(Qt.Orientation.Vertical)
-        
+
         self.tag_editor = TagEditorPanel()
         self.tag_editor.tags_applied.connect(self._on_tags_applied)
         self.tag_editor.save_requested.connect(self.save_selected)
@@ -345,7 +484,7 @@ class MainWindow(QMainWindow):
         if folder:
             self.load_paths([folder])
 
-    def load_paths(self, paths: List[str]):
+    def load_paths(self, paths: list[str]):
         if getattr(self, "_is_loading", False):
             return
 
@@ -356,10 +495,11 @@ class MainWindow(QMainWindow):
             progress.setWindowTitle("Loading Media")
             progress.setWindowModality(Qt.WindowModality.ApplicationModal)
             progress.setMinimumDuration(200)
+            progress.setMinimumWidth(440)
             progress.show()
             QApplication.processEvents()
 
-        all_files: List[str] = []
+        all_files: list[str] = []
         cancelled = False
         for path in paths:
             if progress and progress.wasCanceled():
@@ -403,16 +543,17 @@ class MainWindow(QMainWindow):
                 progress.setWindowTitle("Loading Media")
                 progress.setWindowModality(Qt.WindowModality.ApplicationModal)
                 progress.setMinimumDuration(200)
+                progress.setMinimumWidth(440)
                 progress.show()
             else:
                 progress.setRange(0, len(new_files))
 
-            items_to_add: List[MediaItem] = []
+            items_to_add: list[MediaItem] = []
             for i, fpath in enumerate(new_files):
                 if progress.wasCanceled():
                     break
                 progress.setValue(i)
-                progress.setLabelText(f"Reading ({i+1}/{len(new_files)}): {os.path.basename(fpath)}")
+                progress.setLabelText(f"Reading ({i + 1}/{len(new_files)}): {os.path.basename(fpath)}")
                 QApplication.processEvents()
 
                 item = read_media_item(fpath)
@@ -429,7 +570,7 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------
     # Selection & Editing
     # ---------------------------------------------------------
-    def _get_selected_source_rows(self) -> List[int]:
+    def _get_selected_source_rows(self) -> list[int]:
         selected_indexes = self.table_view.selectionModel().selectedRows()
         if not selected_indexes:
             # Fallback to selectedIndexes when individual cells are clicked/focused
@@ -448,7 +589,7 @@ class MainWindow(QMainWindow):
             source_rows.append(src_idx.row())
         return sorted(source_rows)
 
-    def _get_selected_items(self) -> List[MediaItem]:
+    def _get_selected_items(self) -> list[MediaItem]:
         rows = self._get_selected_source_rows()
         return [self.table_model.get_item(r) for r in rows]
 
@@ -503,20 +644,14 @@ class MainWindow(QMainWindow):
     # ---------------------------------------------------------
     # Saving & Reverting
     # ---------------------------------------------------------
-    def _save_items_in_background(self, dirty_items: List[MediaItem]):
+    def _save_items_in_background(self, dirty_items: list[MediaItem]):
         if getattr(self, "_is_saving", False) or not dirty_items:
             return
 
         self._is_saving = True
         total_count = len(dirty_items)
         try:
-            progress = QProgressDialog(
-                "Saving metadata and artwork to disk...",
-                "Cancel",
-                0,
-                total_count,
-                self
-            )
+            progress = QProgressDialog("Saving metadata and artwork to disk...", "Cancel", 0, total_count, self)
             progress.setWindowTitle("Saving Files")
             progress.setWindowModality(Qt.WindowModality.ApplicationModal)
             progress.setMinimumDuration(0)
@@ -533,8 +668,7 @@ class MainWindow(QMainWindow):
             def _on_progress(idx: int, total: int, fname: str):
                 progress.setValue(idx - 1)
                 progress.setLabelText(
-                    f"Saving ({idx}/{total}): {fname}\n"
-                    "Please wait — rewriting media files may take a moment..."
+                    f"Saving ({idx}/{total}): {fname}\nPlease wait — rewriting media files may take a moment..."
                 )
 
             def _on_done(saved_count: int, error_items: list, was_cancelled: bool):
@@ -559,10 +693,29 @@ class MainWindow(QMainWindow):
             self._update_status_bar()
 
             if error_items:
-                err_msg = "\n".join([f"• {name}: {err}" for name, err in error_items[:5]])
-                QMessageBox.warning(self, "Save Incomplete", f"Saved {saved_count} files.\n\nErrors encountered:\n{err_msg}")
+                err_msg = "\n".join([f"• {name}: {err}" for name, err, _ in error_items[:6]])
+                if len(error_items) > 6:
+                    err_msg += f"\n... and {len(error_items) - 6} more file(s)."
+
+                details_blocks = []
+                for name, err, detail in error_items:
+                    details_blocks.append(
+                        f"=== File: {name} ===\n"
+                        f"Error: {err}\n"
+                        f"Technical Details:\n{detail or '(No technical stack trace available)'}\n"
+                    )
+                full_details = "\n".join(details_blocks)
+
+                msg_box = QMessageBox(self)
+                msg_box.setIcon(QMessageBox.Icon.Warning)
+                msg_box.setWindowTitle("Save Incomplete - FileTagger")
+                msg_box.setText(f"Saved {saved_count} of {total_count} file(s).\n\nErrors encountered:\n{err_msg}")
+                msg_box.setDetailedText(full_details)
+                msg_box.exec()
             elif was_cancelled:
-                self.status_bar.showMessage(f"Save cancelled by user. Saved {saved_count} of {total_count} file(s).", 5000)
+                self.status_bar.showMessage(
+                    f"Save cancelled by user. Saved {saved_count} of {total_count} file(s).", 5000
+                )
             else:
                 self.status_bar.showMessage(f"Successfully saved {saved_count} file(s).", 4000)
         finally:
@@ -603,8 +756,7 @@ class MainWindow(QMainWindow):
         if not rows:
             return
         dirty_count = sum(
-            1 for r in rows
-            if 0 <= r < len(self.table_model.items) and self.table_model.items[r].is_dirty
+            1 for r in rows if 0 <= r < len(self.table_model.items) and self.table_model.items[r].is_dirty
         )
         if dirty_count > 0:
             reply = QMessageBox.question(
@@ -667,7 +819,7 @@ class MainWindow(QMainWindow):
             f"Example:\n  Track 1 → '1/{total}'\n  Track {total} → '{total}/{total}'\n\n"
             "This will update track numbers in memory. (Press Ctrl+S to save to disk).",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes
+            QMessageBox.StandardButton.Yes,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
@@ -708,7 +860,7 @@ class MainWindow(QMainWindow):
             "Pattern: 'Artist - Title' or '01 - Artist - Title'\n"
             "(Press Ctrl+S afterwards to save to disk).",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes
+            QMessageBox.StandardButton.Yes,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
@@ -776,7 +928,9 @@ class MainWindow(QMainWindow):
 
             self.table_model.notify_all_changed()
             self._on_selection_changed()
-            self.status_bar.showMessage(f"Applied online metadata for '{res.title}' ({res.year}). Press Ctrl+S to save.", 5000)
+            self.status_bar.showMessage(
+                f"Applied online metadata for '{res.title}' ({res.year}). Press Ctrl+S to save.", 5000
+            )
 
     def open_music_fetcher(self):
         items = self._get_selected_items()
@@ -821,7 +975,9 @@ class MainWindow(QMainWindow):
 
             self.table_model.notify_all_changed()
             self._on_selection_changed()
-            self.status_bar.showMessage(f"Applied album art & metadata for '{res.album}' by {res.artist}. Press Ctrl+S to save.", 5000)
+            self.status_bar.showMessage(
+                f"Applied album art & metadata for '{res.album}' by {res.artist}. Press Ctrl+S to save.", 5000
+            )
 
     def _show_table_context_menu(self, pos):
         items = self._get_selected_items()
@@ -890,7 +1046,9 @@ class MainWindow(QMainWindow):
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.applied:
             self.table_model.notify_all_changed()
             self._on_selection_changed()
-            self.status_bar.showMessage(f"ReplayGain loudness tags calculated for {len(items)} file(s). Press Ctrl+S to save.", 5000)
+            self.status_bar.showMessage(
+                f"ReplayGain loudness tags calculated for {len(items)} file(s). Press Ctrl+S to save.", 5000
+            )
 
     # ---------------------------------------------------------
     # Status Bar
@@ -913,7 +1071,7 @@ class MainWindow(QMainWindow):
             "<p>A powerful audio and video metadata tagger with interactive video thumbnail extraction.</p>"
             "<p><b>Supported formats:</b> MP3, FLAC, MP4, M4A, MKV, OGG, Opus, WAV, and more.</p>"
             "<hr>"
-            "<p style='color: gray; font-size: 11px;'>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>"
+            "<p style='color: gray; font-size: 11px;'>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>",
         )
 
     def closeEvent(self, event):
@@ -923,8 +1081,10 @@ class MainWindow(QMainWindow):
                 self,
                 "Unsaved Changes",
                 f"You have {dirty_count} file(s) with unsaved metadata changes.\nDo you want to save them before exiting?",
-                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Save
+                | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save,
             )
             if reply == QMessageBox.StandardButton.Save:
                 self.save_all()
@@ -935,4 +1095,3 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
         event.accept()
-

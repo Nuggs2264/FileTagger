@@ -1,0 +1,18 @@
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = [
+    # Line length handled by formatter
+    "E501",
+    # try-except-pass is clearer for OS cleanup
+    "SIM105",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Allow intentional broad exception catching for Qt UI boundaries and media network fallbacks
+"ui/*" = ["BLE001", "S110"]
+"core/*" = ["BLE001", "S110"]
+"test_app.py" = ["S101", "BLE001"]

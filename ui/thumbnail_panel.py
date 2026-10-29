@@ -1,18 +1,20 @@
-import io
-from typing import Optional
-from PIL import Image
-
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QPixmap
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QFileDialog, QFrame, QMessageBox
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtGui import QPixmap, QDragEnterEvent, QDropEvent
 
 from core.media_item import MediaItem
 from core.tagger import normalize_cover_image
 from ui.frame_grabber_dialog import FrameGrabberDialog
 from ui.rename_dialog import sanitize_filename
+
 
 class CoverDropLabel(QLabel):
     image_dropped = Signal(bytes, str)
@@ -41,7 +43,7 @@ class CoverDropLabel(QLabel):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 ext = url.toLocalFile().lower()
-                if ext.endswith(('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif')):
+                if ext.endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif")):
                     event.acceptProposedAction()
                     return
         event.ignore()
@@ -49,7 +51,7 @@ class CoverDropLabel(QLabel):
     def dropEvent(self, event: QDropEvent):
         for url in event.mimeData().urls():
             path = url.toLocalFile()
-            if path and any(path.lower().endswith(e) for e in ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif')):
+            if path and any(path.lower().endswith(e) for e in (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif")):
                 try:
                     with open(path, "rb") as f:
                         raw_data = f.read()
@@ -61,13 +63,14 @@ class CoverDropLabel(QLabel):
                     QMessageBox.warning(self, "Error", f"Could not load image: {e}")
         event.ignore()
 
+
 class ThumbnailPanel(QWidget):
     cover_updated = Signal(object, str)  # (bytes or None, mime)
     fetch_online_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.current_item: Optional[MediaItem] = None
+        self.current_item: MediaItem | None = None
         self._init_ui()
         self.set_media_item(None)
 
@@ -133,7 +136,7 @@ class ThumbnailPanel(QWidget):
 
         layout.addLayout(btn_row_2)
 
-    def set_media_item(self, item: Optional[MediaItem]):
+    def set_media_item(self, item: MediaItem | None):
         self.current_item = item
         if not item:
             self.cover_label.setPixmap(QPixmap())
@@ -151,10 +154,14 @@ class ThumbnailPanel(QWidget):
         self.btn_fetch_online.setEnabled(True)
         self.update_cover_display(item.cover_bytes, item.cover_mime)
 
-    def update_cover_display(self, data: Optional[bytes], mime: Optional[str] = None):
+    def update_cover_display(self, data: bytes | None, mime: str | None = None):
         if not data:
             self.cover_label.setPixmap(QPixmap())
-            hint = "Drop image here\nor click 'Grab Video Frame...'" if (self.current_item and self.current_item.is_video) else "Drop image here\nor click 'Choose Image...'"
+            hint = (
+                "Drop image here\nor click 'Grab Video Frame...'"
+                if (self.current_item and self.current_item.is_video)
+                else "Drop image here\nor click 'Choose Image...'"
+            )
             self.cover_label.setText(f"No Cover Art\n\n({hint})")
             self.info_label.setText("No cover embedded")
             self.btn_export.setEnabled(False)
@@ -164,9 +171,7 @@ class ThumbnailPanel(QWidget):
         pix = QPixmap()
         if pix.loadFromData(data):
             scaled = pix.scaled(
-                self.cover_label.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
+                self.cover_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
             )
             self.cover_label.setPixmap(scaled)
             size_kb = len(data) / 1024.0
@@ -185,7 +190,7 @@ class ThumbnailPanel(QWidget):
         if self.current_item and self.current_item.cover_bytes:
             self.update_cover_display(self.current_item.cover_bytes, self.current_item.cover_mime)
 
-    def _set_cover_data(self, data: Optional[bytes], mime: str):
+    def _set_cover_data(self, data: bytes | None, mime: str):
         if data:
             data, mime = normalize_cover_image(data)
         self.update_cover_display(data, mime)
@@ -193,10 +198,7 @@ class ThumbnailPanel(QWidget):
 
     def _choose_image_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select Cover Image",
-            "",
-            "Image Files (*.jpg *.jpeg *.png *.webp *.bmp *.gif)"
+            self, "Select Cover Image", "", "Image Files (*.jpg *.jpeg *.png *.webp *.bmp *.gif)"
         )
         if file_path:
             try:
@@ -212,9 +214,7 @@ class ThumbnailPanel(QWidget):
             return
 
         dialog = FrameGrabberDialog(
-            file_path=self.current_item.file_path,
-            duration=self.current_item.duration,
-            parent=self
+            file_path=self.current_item.file_path, duration=self.current_item.duration, parent=self
         )
         if dialog.exec() == FrameGrabberDialog.DialogCode.Accepted and dialog.captured_bytes:
             self._set_cover_data(dialog.captured_bytes, "image/jpeg")
@@ -227,10 +227,7 @@ class ThumbnailPanel(QWidget):
         safe_title = sanitize_filename(self.current_item.tags.get("title") or "export") or "export"
         default_name = f"cover_{safe_title}{ext}"
         save_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export Cover Art",
-            default_name,
-            "JPEG Image (*.jpg);;PNG Image (*.png);;All Files (*)"
+            self, "Export Cover Art", default_name, "JPEG Image (*.jpg);;PNG Image (*.png);;All Files (*)"
         )
         if save_path:
             try:

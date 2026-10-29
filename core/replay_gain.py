@@ -1,14 +1,14 @@
+import math
 import os
 import re
-import math
 import subprocess
 from dataclasses import dataclass
-from typing import Optional, Tuple, List, Dict
 
-from core.media_item import MediaItem
 from core.ffmpeg_utils import get_ffmpeg_path
+from core.media_item import MediaItem
 
 DEFAULT_REFERENCE_LUFS = -18.00  # Standard ReplayGain 2.0 Reference
+
 
 @dataclass
 class ReplayGainResult:
@@ -18,10 +18,11 @@ class ReplayGainResult:
     duration: float
     track_gain: str
     track_peak: str
-    album_gain: Optional[str] = None
-    album_peak: Optional[str] = None
+    album_gain: str | None = None
+    album_peak: str | None = None
 
-def scan_track_loudness(file_path: str, proc_list: Optional[list] = None) -> Tuple[float, float, float]:
+
+def scan_track_loudness(file_path: str, proc_list: list | None = None) -> tuple[float, float, float]:
     """
     Runs FFmpeg's ebur128 audio filter to calculate:
     - Integrated loudness (LUFS)
@@ -46,10 +47,13 @@ def scan_track_loudness(file_path: str, proc_list: Optional[list] = None) -> Tup
         ffmpeg_exe,
         "-nostats",
         "-hide_banner",
-        "-i", file_path,
-        "-filter_complex", "ebur128=peak=true",
-        "-f", "null",
-        "-"
+        "-i",
+        file_path,
+        "-filter_complex",
+        "ebur128=peak=true",
+        "-f",
+        "null",
+        "-",
     ]
 
     proc = subprocess.Popen(
@@ -82,7 +86,7 @@ def scan_track_loudness(file_path: str, proc_list: Optional[list] = None) -> Tup
     if not i_match:
         # Try alternate pattern
         i_match = re.search(r"\bI:\s+([-\d\.]+)\s+LUFS", stderr_output)
-    
+
     integrated_lufs = float(i_match.group(1)) if i_match else -18.0
 
     # Parse True peak
@@ -92,7 +96,7 @@ def scan_track_loudness(file_path: str, proc_list: Optional[list] = None) -> Tup
     peak_match = re.search(r"True peak:\s+Peak:\s+([-\d\.]+)\s+dBFS", stderr_output)
     if not peak_match:
         peak_match = re.search(r"\bPeak:\s+([-\d\.]+)\s+dBFS", stderr_output)
-    
+
     true_peak_db = float(peak_match.group(1)) if peak_match else 0.0
 
     # Parse Duration
@@ -104,17 +108,23 @@ def scan_track_loudness(file_path: str, proc_list: Optional[list] = None) -> Tup
 
     return integrated_lufs, true_peak_db, duration
 
-def format_replaygain_track(integrated_lufs: float, true_peak_db: float, reference_lufs: float = DEFAULT_REFERENCE_LUFS) -> Tuple[str, str]:
+
+def format_replaygain_track(
+    integrated_lufs: float, true_peak_db: float, reference_lufs: float = DEFAULT_REFERENCE_LUFS
+) -> tuple[str, str]:
     """Calculates and formats (track_gain, track_peak) strings."""
     gain_db = reference_lufs - integrated_lufs
     track_gain = f"{gain_db:+.2f} dB"
-    
+
     # Linear scale true peak
     linear_peak = 10.0 ** (true_peak_db / 20.0)
     track_peak = f"{linear_peak:.6f}"
     return track_gain, track_peak
 
-def format_replaygain_album(track_scans: List[Tuple[float, float, float]], reference_lufs: float = DEFAULT_REFERENCE_LUFS) -> Tuple[str, str]:
+
+def format_replaygain_album(
+    track_scans: list[tuple[float, float, float]], reference_lufs: float = DEFAULT_REFERENCE_LUFS
+) -> tuple[str, str]:
     """
     Calculates unified Album Gain & Album Peak from multiple tracks using energy-weighted LUFS aggregation.
     """
@@ -141,12 +151,9 @@ def format_replaygain_album(track_scans: List[Tuple[float, float, float]], refer
 
     return album_gain, album_peak
 
+
 def apply_replaygain_tags(
-    item: MediaItem,
-    track_gain: str,
-    track_peak: str,
-    album_gain: Optional[str] = None,
-    album_peak: Optional[str] = None
+    item: MediaItem, track_gain: str, track_peak: str, album_gain: str | None = None, album_peak: str | None = None
 ):
     """
     Applies standard ReplayGain tags to the MediaItem's extra_tags dictionary.

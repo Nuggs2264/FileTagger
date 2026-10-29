@@ -1,21 +1,38 @@
 import html
-from typing import List, Optional, Dict
-from PySide6.QtCore import Qt, QThread, Signal, QSettings
-from PySide6.QtWidgets import (
-    QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-    QComboBox, QCheckBox, QSplitter, QTextEdit, QFrame,
-    QProgressBar, QMessageBox
-)
+
+from PySide6.QtCore import QSettings, Qt, QThread, Signal
 from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from core.online_fetcher import (
-    SearchResult, search_imdb, search_tvmaze, search_tmdb,
-    fetch_wikipedia_plot_and_director, download_image_bytes,
-    clean_search_query
+    SearchResult,
+    clean_search_query,
+    download_image_bytes,
+    fetch_wikipedia_plot_and_director,
+    search_imdb,
+    search_tmdb,
+    search_tvmaze,
 )
-from core.tagger import normalize_cover_image
-from core.secure_storage import encrypt_secret, decrypt_secret
+from core.secure_storage import decrypt_secret, encrypt_secret
+
 
 class SearchWorker(QThread):
     results_ready = Signal(list)
@@ -40,6 +57,7 @@ class SearchWorker(QThread):
         except Exception as e:
             self.error_occurred.emit(str(e))
 
+
 class ImageDownloadWorker(QThread):
     image_ready = Signal(bytes)
     failed = Signal(str)
@@ -58,6 +76,7 @@ class ImageDownloadWorker(QThread):
         except Exception as e:
             self.failed.emit(str(e))
 
+
 class DetailWorker(QThread):
     details_ready = Signal(dict)
 
@@ -72,18 +91,19 @@ class DetailWorker(QThread):
         except Exception:
             self.details_ready.emit({})
 
+
 class OnlineFetcherDialog(QDialog):
     def __init__(self, initial_query: str = "", parent=None):
         super().__init__(parent)
         self.settings = QSettings("FileTagger", "FileTagger")
         self.initial_query = clean_search_query(initial_query)
-        self.search_results: List[SearchResult] = []
-        self.selected_result: Optional[SearchResult] = None
-        self.downloaded_poster_bytes: Optional[bytes] = None
+        self.search_results: list[SearchResult] = []
+        self.selected_result: SearchResult | None = None
+        self.downloaded_poster_bytes: bytes | None = None
 
-        self.search_worker: Optional[SearchWorker] = None
-        self.image_worker: Optional[ImageDownloadWorker] = None
-        self.detail_worker: Optional[DetailWorker] = None
+        self.search_worker: SearchWorker | None = None
+        self.image_worker: ImageDownloadWorker | None = None
+        self.detail_worker: DetailWorker | None = None
         self._retired_workers: list = []
 
         self.setWindowTitle("Online Movie & TV Poster & Metadata Fetcher")
@@ -109,11 +129,7 @@ class OnlineFetcherDialog(QDialog):
         search_row.addWidget(self.txt_query, 1)
 
         self.cmb_engine = QComboBox()
-        self.cmb_engine.addItems([
-            "🎬 IMDb & Open Web (No Key)",
-            "📺 TVMaze (TV Shows - No Key)",
-            "🌐 TMDb (API Key)"
-        ])
+        self.cmb_engine.addItems(["🎬 IMDb & Open Web (No Key)", "📺 TVMaze (TV Shows - No Key)", "🌐 TMDb (API Key)"])
         saved_engine = self.settings.value("search_engine", "🎬 IMDb & Open Web (No Key)")
         idx = self.cmb_engine.findText(saved_engine)
         if idx >= 0:
@@ -155,7 +171,9 @@ class OnlineFetcherDialog(QDialog):
 
         tmdb_box_layout.addLayout(self.tmdb_row)
 
-        lbl_tmdb_note = QLabel("<small style='color: #888;'>This product uses the TMDB API but is not endorsed or certified by TMDB.</small>")
+        lbl_tmdb_note = QLabel(
+            "<small style='color: #888;'>This product uses the TMDB API but is not endorsed or certified by TMDB.</small>"
+        )
         tmdb_box_layout.addWidget(lbl_tmdb_note)
 
         self.tmdb_container = QFrame()
@@ -223,7 +241,9 @@ class OnlineFetcherDialog(QDialog):
         self.txt_details = QTextEdit()
         self.txt_details.setReadOnly(True)
         self.txt_details.setMaximumHeight(140)
-        self.txt_details.setStyleSheet("background-color: #18181f; border: 1px solid #262632; border-radius: 6px; font-size: 9pt;")
+        self.txt_details.setStyleSheet(
+            "background-color: #18181f; border: 1px solid #262632; border-radius: 6px; font-size: 9pt;"
+        )
         right_layout.addWidget(self.txt_details)
 
         splitter.addWidget(right_widget)
@@ -319,7 +339,11 @@ class OnlineFetcherDialog(QDialog):
         tmdb_key = self.txt_tmdb_key.text().strip()
 
         if engine == "TMDb" and not tmdb_key:
-            QMessageBox.warning(self, "TMDb Key Required", "Please enter your TMDb API key to use TMDb, or switch to '🎬 IMDb & Open Web (No Key)'.")
+            QMessageBox.warning(
+                self,
+                "TMDb Key Required",
+                "Please enter your TMDb API key to use TMDb, or switch to '🎬 IMDb & Open Web (No Key)'.",
+            )
             return
 
         self.progress_bar.setVisible(True)
@@ -337,7 +361,7 @@ class OnlineFetcherDialog(QDialog):
         self.search_worker.error_occurred.connect(self._on_search_error)
         self.search_worker.start()
 
-    def _on_results_ready(self, results: List[SearchResult]):
+    def _on_results_ready(self, results: list[SearchResult]):
         self.progress_bar.setVisible(False)
         self.btn_search.setEnabled(True)
         self.search_results = results
@@ -368,9 +392,7 @@ class OnlineFetcherDialog(QDialog):
         QMessageBox.warning(self, "Search Error", f"Failed to fetch metadata: {err}")
 
     def _render_details_html(self, res: SearchResult):
-        lines = [
-            f"<b>{html.escape(res.title)}</b> ({html.escape(res.year)}) - <i>{html.escape(res.media_type)}</i>"
-        ]
+        lines = [f"<b>{html.escape(res.title)}</b> ({html.escape(res.year)}) - <i>{html.escape(res.media_type)}</i>"]
         if res.genres:
             safe_genres = ", ".join(html.escape(g) for g in res.genres)
             lines.append(f"<b>Genres:</b> {safe_genres}")
@@ -426,9 +448,7 @@ class OnlineFetcherDialog(QDialog):
         pix = QPixmap()
         if pix.loadFromData(data):
             scaled = pix.scaled(
-                180, 260,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
+                180, 260, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
             )
             self.lbl_poster.clear()
             self.lbl_poster.setPixmap(scaled)
@@ -453,7 +473,7 @@ class OnlineFetcherDialog(QDialog):
         if updated:
             self._render_details_html(res)
 
-    def _retire_worker(self, worker: Optional[QThread]):
+    def _retire_worker(self, worker: QThread | None):
         if worker and worker.isRunning():
             worker.blockSignals(True)
             self._retired_workers.append(worker)
@@ -481,4 +501,3 @@ class OnlineFetcherDialog(QDialog):
             return
         self._stop_workers()
         self.accept()
-

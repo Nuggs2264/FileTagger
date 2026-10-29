@@ -1,6 +1,5 @@
 import os
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
 
 STANDARD_TAG_KEYS = [
     "title",
@@ -12,34 +11,36 @@ STANDARD_TAG_KEYS = [
     "disc_number",
     "genre",
     "comment",
-    "composer"
+    "composer",
 ]
 
 AUDIO_EXTENSIONS = {".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".aiff", ".wma"}
 VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".wmv", ".flv", ".ts"}
 SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
 
+
 @dataclass
 class MediaItem:
     file_path: str
-    tags: Dict[str, str] = field(default_factory=dict)
-    original_tags: Dict[str, str] = field(default_factory=dict)
-    
-    extra_tags: Dict[str, str] = field(default_factory=dict)
-    original_extra_tags: Dict[str, str] = field(default_factory=dict)
+    tags: dict[str, str] = field(default_factory=dict)
+    original_tags: dict[str, str] = field(default_factory=dict)
 
-    technical_info: Dict[str, str] = field(default_factory=dict)
-    
-    cover_bytes: Optional[bytes] = None
-    cover_mime: Optional[str] = None
-    original_cover_bytes: Optional[bytes] = None
-    original_cover_mime: Optional[str] = None
+    extra_tags: dict[str, str] = field(default_factory=dict)
+    original_extra_tags: dict[str, str] = field(default_factory=dict)
+
+    technical_info: dict[str, str] = field(default_factory=dict)
+
+    cover_bytes: bytes | None = None
+    cover_mime: str | None = None
+    original_cover_bytes: bytes | None = None
+    original_cover_mime: str | None = None
     cover_modified: bool = False
-    
+
     duration: float = 0.0
-    resolution: Optional[str] = None
+    resolution: str | None = None
     file_size: int = 0
-    error: Optional[str] = None
+    error: str | None = None
+    detailed_error: str | None = None
 
     def __post_init__(self):
         if not self.tags:
@@ -81,13 +82,10 @@ class MediaItem:
         for k in STANDARD_TAG_KEYS:
             if self.tags.get(k, "") != self.original_tags.get(k, ""):
                 return True
-        if self.extra_tags != self.original_extra_tags:
-            return True
-        return False
+        return self.extra_tags != self.original_extra_tags
 
     def mark_dirty(self):
         """Explicitly tracks dirty state (is_dirty also computes differences automatically)."""
-        pass
 
     def mark_saved(self):
         self.original_tags = dict(self.tags)
@@ -95,6 +93,8 @@ class MediaItem:
         self.original_cover_bytes = self.cover_bytes
         self.original_cover_mime = self.cover_mime
         self.cover_modified = False
+        self.error = None
+        self.detailed_error = None
 
     def revert(self):
         self.tags = dict(self.original_tags)
@@ -102,13 +102,15 @@ class MediaItem:
         self.cover_bytes = self.original_cover_bytes
         self.cover_mime = self.original_cover_mime
         self.cover_modified = False
+        self.error = None
+        self.detailed_error = None
 
-    def set_cover(self, data: Optional[bytes], mime_type: Optional[str] = "image/jpeg"):
+    def set_cover(self, data: bytes | None, mime_type: str | None = "image/jpeg"):
         self.cover_bytes = data
         self.cover_mime = mime_type if data else None
         self.cover_modified = True
 
-    def get_all_tags(self) -> Dict[str, str]:
+    def get_all_tags(self) -> dict[str, str]:
         """Returns unified dictionary of all tags (standard + extended)."""
         combined = dict(self.extra_tags)
         for k in STANDARD_TAG_KEYS:
@@ -130,7 +132,7 @@ class MediaItem:
 
     def formatted_size(self) -> str:
         size = self.file_size
-        for unit in ['B', 'KB', 'MB', 'GB']:
+        for unit in ["B", "KB", "MB", "GB"]:
             if size < 1024.0:
                 return f"{size:.1f} {unit}"
             size /= 1024.0

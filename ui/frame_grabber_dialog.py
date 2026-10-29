@@ -1,11 +1,17 @@
-from typing import Optional
-from PySide6.QtCore import Qt, QTimer, QThread, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
-    QPushButton, QWidget, QFrame
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSlider,
+    QVBoxLayout,
 )
-from PySide6.QtGui import QPixmap, QImage
+
 from core.ffmpeg_utils import extract_frame_bytes
+
 
 class FrameExtractWorker(QThread):
     frame_ready = Signal(bytes, float)
@@ -20,15 +26,16 @@ class FrameExtractWorker(QThread):
         if data:
             self.frame_ready.emit(data, self.timestamp)
 
+
 class FrameGrabberDialog(QDialog):
     def __init__(self, file_path: str, duration: float, parent=None):
         super().__init__(parent)
         self.file_path = file_path
         self.duration = max(duration, 1.0)
         self.current_time = min(5.0, self.duration * 0.1)  # Default 5s or 10%
-        self.captured_bytes: Optional[bytes] = None
+        self.captured_bytes: bytes | None = None
 
-        self.worker: Optional[FrameExtractWorker] = None
+        self.worker: FrameExtractWorker | None = None
         self._retired_workers: list = []
         self.debounce_timer = QTimer(self)
         self.debounce_timer.setSingleShot(True)
@@ -49,7 +56,9 @@ class FrameGrabberDialog(QDialog):
 
         # Frame preview area
         self.preview_container = QFrame()
-        self.preview_container.setStyleSheet("background-color: #121216; border-radius: 8px; border: 1px solid #262632;")
+        self.preview_container.setStyleSheet(
+            "background-color: #121216; border-radius: 8px; border: 1px solid #262632;"
+        )
         preview_layout = QVBoxLayout(self.preview_container)
         preview_layout.setContentsMargins(4, 4, 4, 4)
 
@@ -177,7 +186,7 @@ class FrameGrabberDialog(QDialog):
             scaled = pixmap.scaled(
                 self.preview_label.size(),
                 Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
+                Qt.TransformationMode.SmoothTransformation,
             )
             self.preview_label.setPixmap(scaled)
         else:
@@ -205,4 +214,3 @@ class FrameGrabberDialog(QDialog):
             self.accept()
         else:
             self.reject()
-

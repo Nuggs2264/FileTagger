@@ -1,20 +1,32 @@
 import os
 import re
-from typing import List, Tuple
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-    QComboBox, QMessageBox
+    QComboBox,
+    QDialog,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
 )
+
 from core.media_item import MediaItem
 
 ILLEGAL_CHARS = r'[\\/*?:"<>|\x00-\x1f]'
 WINDOWS_RESERVED_NAMES = {
-    "CON", "PRN", "AUX", "NUL",
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
     *(f"COM{i}" for i in range(1, 10)),
     *(f"LPT{i}" for i in range(1, 10)),
 }
+
 
 def sanitize_filename(name: str) -> str:
     if not name:
@@ -33,8 +45,9 @@ def sanitize_filename(name: str) -> str:
     # Enforce reasonable max filename stem length (NTFS 255-char component limit)
     return cleaned[:200].strip(" .")
 
+
 class RenameDialog(QDialog):
-    def __init__(self, items: List[MediaItem], parent=None):
+    def __init__(self, items: list[MediaItem], parent=None):
         super().__init__(parent)
         self.items = items
         self.renamed_count = 0
@@ -63,13 +76,15 @@ class RenameDialog(QDialog):
 
         self.cmb_pattern = QComboBox()
         self.cmb_pattern.setEditable(True)
-        self.cmb_pattern.addItems([
-            "{artist} - {title}",
-            "{track_number} - {title}",
-            "{track_number} - {artist} - {title}",
-            "{year} - {album} - {track_number} - {title}",
-            "{artist} - {album} - {track_number} - {title}"
-        ])
+        self.cmb_pattern.addItems(
+            [
+                "{artist} - {title}",
+                "{track_number} - {title}",
+                "{track_number} - {artist} - {title}",
+                "{year} - {album} - {track_number} - {title}",
+                "{artist} - {album} - {track_number} - {title}",
+            ]
+        )
         self.cmb_pattern.currentTextChanged.connect(self._update_preview)
         pattern_row.addWidget(self.cmb_pattern, 1)
 
@@ -105,9 +120,9 @@ class RenameDialog(QDialog):
             "album": sanitize_filename(item.tags.get("album", "") or "Unknown Album"),
             "track_number": sanitize_filename(str(item.tags.get("track_number", "00")).zfill(2)),
             "year": sanitize_filename(item.tags.get("year", "") or ""),
-            "genre": sanitize_filename(item.tags.get("genre", "") or "")
+            "genre": sanitize_filename(item.tags.get("genre", "") or ""),
         }
-        
+
         try:
             # Safe token replacement without arbitrary Python str.format attribute access
             base = pattern
@@ -133,7 +148,9 @@ class RenameDialog(QDialog):
             dir_path = os.path.abspath(os.path.dirname(item.file_path))
             new_path = os.path.abspath(os.path.join(dir_path, os.path.basename(new_name)))
             if os.name == "nt" and len(new_path) >= 260:
-                new_item.setToolTip(f"⚠️ Warning: Target path exceeds Windows MAX_PATH limit ({len(new_path)}/260 chars)")
+                new_item.setToolTip(
+                    f"⚠️ Warning: Target path exceeds Windows MAX_PATH limit ({len(new_path)}/260 chars)"
+                )
 
             self.table.setItem(i, 0, cur_item)
             self.table.setItem(i, 1, new_item)
@@ -167,11 +184,13 @@ class RenameDialog(QDialog):
                 item.file_path = new_path
                 renamed += 1
             except Exception as e:
-                errors.append(f"Failed to rename {item.file_name}: {str(e)}")
+                errors.append(f"Failed to rename {item.file_name}: {e!s}")
 
         self.renamed_count = renamed
         if errors:
-            QMessageBox.warning(self, "Rename Finished with Warnings", f"Renamed {renamed} files.\n\nIssues:\n" + "\n".join(errors[:5]))
+            QMessageBox.warning(
+                self, "Rename Finished with Warnings", f"Renamed {renamed} files.\n\nIssues:\n" + "\n".join(errors[:5])
+            )
         else:
             QMessageBox.information(self, "Success", f"Successfully renamed {renamed} files!")
 

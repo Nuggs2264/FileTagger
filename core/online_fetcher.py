@@ -1,12 +1,10 @@
-import os
-import re
-import io
 import json
-import urllib.request
-import urllib.parse
+import re
 import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict
+
 
 @dataclass
 class SearchResult:
@@ -16,44 +14,48 @@ class SearchResult:
     media_type: str = "Movie"
     director: str = ""
     cast: str = ""
-    genres: List[str] = field(default_factory=list)
+    genres: list[str] = field(default_factory=list)
     overview: str = ""
     poster_url: str = ""
     source: str = "IMDb"
 
+
 def clean_search_query(name: str) -> str:
     """Strips file extensions, resolution tags, scene junk, and dots/underscores."""
     # Strip extension
-    name = re.sub(r'\.[a-zA-Z0-9]{2,4}$', '', name)
+    name = re.sub(r"\.[a-zA-Z0-9]{2,4}$", "", name)
     # Strip bracketed tags e.g. [1080p] or (2024)
-    name = re.sub(r'\[.*?\]', ' ', name)
+    name = re.sub(r"\[.*?\]", " ", name)
     # Replace dots and underscores
-    name = re.sub(r'[._]', ' ', name)
+    name = re.sub(r"[._]", " ", name)
     # Strip resolution, quality, codec tags and anything following
-    name = re.sub(r'(?i)\b(1080p|720p|2160p|4k|uhd|bluray|web-?dl|webrip|hdtv|x264|x265|hevc|aac|dts|remux)\b.*$', '', name)
+    name = re.sub(
+        r"(?i)\b(1080p|720p|2160p|4k|uhd|bluray|web-?dl|webrip|hdtv|x264|x265|hevc|aac|dts|remux)\b.*$", "", name
+    )
     # Collapse whitespace
-    name = re.sub(r'\s+', ' ', name).strip()
+    name = re.sub(r"\s+", " ", name).strip()
     return name
 
-def search_imdb(query: str) -> List[SearchResult]:
+
+def search_imdb(query: str) -> list[SearchResult]:
     """
     Queries IMDb's open suggestion service.
     Returns high-res poster URLs, title, year, cast, and media type with zero API key required.
     """
-    clean_q = re.sub(r'[^a-zA-Z0-9\s]', '', query).strip().lower()
+    clean_q = re.sub(r"[^a-zA-Z0-9\s]", "", query).strip().lower()
     if not clean_q:
         return []
 
     first_char = clean_q[0]
-    encoded_q = urllib.parse.quote(clean_q.replace(' ', '_'))
+    encoded_q = urllib.parse.quote(clean_q.replace(" ", "_"))
     url = f"https://v3.sg.media-imdb.com/suggestion/{first_char}/{encoded_q}.json"
-    
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     req = urllib.request.Request(url, headers=headers)
-    
-    results: List[SearchResult] = []
+
+    results: list[SearchResult] = []
     try:
         with urllib.request.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="ignore"))
@@ -68,7 +70,7 @@ def search_imdb(query: str) -> List[SearchResult]:
                 year = str(item.get("y", "")).strip()
                 q_type = str(item.get("q", "feature")).capitalize()
                 cast = str(item.get("s", "")).strip()
-                
+
                 # Poster URL
                 poster_url = ""
                 img_data = item.get("i")
@@ -76,7 +78,7 @@ def search_imdb(query: str) -> List[SearchResult]:
                     poster_url = str(img_data.get("imageUrl", ""))
                     # Convert thumbnail URL to high-res if possible by stripping resizing params
                     if "._V1_" in poster_url:
-                        poster_url = re.sub(r'\._V1_.*?\.', '._V1_.', poster_url)
+                        poster_url = re.sub(r"\._V1_.*?\.", "._V1_.", poster_url)
 
                 res = SearchResult(
                     id=item_id,
@@ -85,7 +87,7 @@ def search_imdb(query: str) -> List[SearchResult]:
                     media_type="Movie" if "feature" in q_type.lower() else q_type,
                     cast=cast,
                     poster_url=poster_url,
-                    source="IMDb"
+                    source="IMDb",
                 )
                 results.append(res)
     except Exception as e:
@@ -93,7 +95,8 @@ def search_imdb(query: str) -> List[SearchResult]:
 
     return results
 
-def search_tvmaze(query: str) -> List[SearchResult]:
+
+def search_tvmaze(query: str) -> list[SearchResult]:
     """
     Queries TVMaze API for TV Shows (title, premiered year, genres, plot summary, and original poster art).
     Completely free and open.
@@ -102,8 +105,8 @@ def search_tvmaze(query: str) -> List[SearchResult]:
     url = f"https://api.tvmaze.com/search/shows?q={encoded_q}"
     headers = {"User-Agent": "FileTagger/1.0"}
     req = urllib.request.Request(url, headers=headers)
-    
-    results: List[SearchResult] = []
+
+    results: list[SearchResult] = []
     try:
         with urllib.request.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="ignore"))
@@ -113,11 +116,11 @@ def search_tvmaze(query: str) -> List[SearchResult]:
                 premiered = str(show.get("premiered", ""))
                 year = premiered[:4] if premiered else ""
                 genres = show.get("genres", [])
-                
+
                 summary = str(show.get("summary", ""))
                 # Strip HTML tags
-                summary = re.sub(r'<[^>]+>', '', summary).strip()
-                
+                summary = re.sub(r"<[^>]+>", "", summary).strip()
+
                 poster_url = ""
                 img_dict = show.get("image")
                 if isinstance(img_dict, dict):
@@ -131,7 +134,7 @@ def search_tvmaze(query: str) -> List[SearchResult]:
                     genres=genres,
                     overview=summary,
                     poster_url=poster_url,
-                    source="TVMaze"
+                    source="TVMaze",
                 )
                 results.append(res)
     except Exception as e:
@@ -139,7 +142,8 @@ def search_tvmaze(query: str) -> List[SearchResult]:
 
     return results
 
-def search_tmdb(query: str, api_key: str) -> List[SearchResult]:
+
+def search_tmdb(query: str, api_key: str) -> list[SearchResult]:
     """
     Queries The Movie Database (TMDb) v3 API if an API key is provided.
     """
@@ -151,7 +155,7 @@ def search_tmdb(query: str, api_key: str) -> List[SearchResult]:
     headers = {"User-Agent": "FileTagger/1.0"}
     req = urllib.request.Request(url, headers=headers)
 
-    results: List[SearchResult] = []
+    results: list[SearchResult] = []
     try:
         with urllib.request.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="ignore"))
@@ -175,28 +179,31 @@ def search_tmdb(query: str, api_key: str) -> List[SearchResult]:
                     media_type="Movie" if media_type == "movie" else "TV Series",
                     overview=overview,
                     poster_url=poster_url,
-                    source="TMDb"
+                    source="TMDb",
                 )
                 results.append(res)
     except urllib.error.HTTPError as he:
         if he.code == 401:
-            raise RuntimeError("Invalid TMDb API Key (401 Unauthorized). Please check your key in the settings.")
+            raise RuntimeError(
+                "Invalid TMDb API Key (401 Unauthorized). Please check your key in the settings."
+            ) from he
         elif he.code == 429:
             retry_after = he.headers.get("Retry-After", "") if hasattr(he, "headers") else ""
             hint = f" (retry after {retry_after}s)" if retry_after else ""
-            raise RuntimeError(f"TMDb rate limit exceeded (429 Too Many Requests){hint}. Please wait a moment.")
+            raise RuntimeError(f"TMDb rate limit exceeded (429 Too Many Requests){hint}. Please wait a moment.") from he
         elif he.code == 503:
-            raise RuntimeError("TMDb service temporarily unavailable (503). Please try again shortly.")
-        raise RuntimeError(f"TMDb HTTP error {he.code}: {he.reason}")
+            raise RuntimeError("TMDb service temporarily unavailable (503). Please try again shortly.") from he
+        raise RuntimeError(f"TMDb HTTP error {he.code}: {he.reason}") from he
     except Exception as e:
         clean_key = api_key.strip()
         safe_err = str(e).replace(clean_key, "[REDACTED]") if clean_key else str(e)
         print(f"TMDb search error: {safe_err}")
-        raise RuntimeError(f"TMDb search failed: {safe_err}")
+        raise RuntimeError(f"TMDb search failed: {safe_err}") from e
 
     return results
 
-def fetch_wikipedia_plot_and_director(title: str) -> Dict[str, str]:
+
+def fetch_wikipedia_plot_and_director(title: str) -> dict[str, str]:
     """
     Fetches plot synopsis and details from Wikipedia REST summary API.
     """
@@ -208,19 +215,21 @@ def fetch_wikipedia_plot_and_director(title: str) -> Dict[str, str]:
         with urllib.request.urlopen(req, timeout=6) as resp:
             data = json.loads(resp.read().decode("utf-8", errors="ignore"))
             extract = data.get("extract", "")
-            if extract and not data.get("type") == "disambiguation":
+            if extract and data.get("type") != "disambiguation":
                 info["overview"] = extract
                 # Try to extract director e.g. "directed by Hayao Miyazaki"
-                m = re.search(r'directed by ([A-Z][a-z]+ [A-Z][a-z]+)', extract)
+                m = re.search(r"directed by ([A-Z][a-z]+ [A-Z][a-z]+)", extract)
                 if m:
                     info["director"] = m.group(1)
     except Exception:
         pass
     return info
 
+
 MAX_IMAGE_BYTES = 15 * 1024 * 1024  # 15 MB hard cap
 
-def download_image_bytes(image_url: str) -> Optional[bytes]:
+
+def download_image_bytes(image_url: str) -> bytes | None:
     """Downloads poster image data over HTTP/HTTPS with proper timeout and headers."""
     if not image_url:
         return None
@@ -249,4 +258,3 @@ def download_image_bytes(image_url: str) -> Optional[bytes]:
     except Exception as e:
         print(f"Error downloading image from {image_url}: {e}")
         return None
-

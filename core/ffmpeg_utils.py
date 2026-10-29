@@ -1,12 +1,12 @@
 import os
-import subprocess
-import shutil
 import re
-from typing import Optional, Tuple, Dict, Any
+import shutil
+import subprocess
 
 _FFMPEG_PATH = None
 
-def get_ffmpeg_path() -> Optional[str]:
+
+def get_ffmpeg_path() -> str | None:
     """Finds or resolves the path to the ffmpeg executable."""
     global _FFMPEG_PATH
     if _FFMPEG_PATH and os.path.exists(_FFMPEG_PATH):
@@ -21,6 +21,7 @@ def get_ffmpeg_path() -> Optional[str]:
     # Try imageio_ffmpeg
     try:
         import imageio_ffmpeg
+
         exe = imageio_ffmpeg.get_ffmpeg_exe()
         if exe and os.path.exists(exe):
             _FFMPEG_PATH = exe
@@ -30,7 +31,8 @@ def get_ffmpeg_path() -> Optional[str]:
 
     return None
 
-def get_media_duration_and_resolution(file_path: str) -> Tuple[float, Optional[str]]:
+
+def get_media_duration_and_resolution(file_path: str) -> tuple[float, str | None]:
     """
     Returns (duration_in_seconds, resolution_str_e.g._1920x1080)
     using ffmpeg stderr probe.
@@ -42,19 +44,19 @@ def get_media_duration_and_resolution(file_path: str) -> Tuple[float, Optional[s
     cmd = [ffmpeg_exe, "-hide_banner", "-i", file_path]
     try:
         startupinfo = None
-        if os.name == 'nt':
+        if os.name == "nt":
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        
+
         proc = subprocess.run(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
+            check=False,
             text=True,
-            encoding='utf-8',
-            errors='ignore',
+            encoding="utf-8",
+            errors="ignore",
             startupinfo=startupinfo,
-            timeout=10
+            timeout=10,
         )
         output = proc.stderr
 
@@ -74,21 +76,22 @@ def get_media_duration_and_resolution(file_path: str) -> Tuple[float, Optional[s
         print(f"Error probing media with ffmpeg: {e}")
         return 0.0, None
 
-def get_media_technical_and_raw_metadata(file_path: str) -> Tuple[Dict[str, str], Dict[str, str]]:
+
+def get_media_technical_and_raw_metadata(file_path: str) -> tuple[dict[str, str], dict[str, str]]:
     """
     Returns (technical_info_dict, raw_metadata_dict) using a single FFmpeg invocation.
     Also populates internal keys '_duration_sec' and '_resolution' in tech_info
     to avoid redundant FFmpeg probes.
     """
-    tech_info: Dict[str, str] = {}
-    raw_meta: Dict[str, str] = {}
+    tech_info: dict[str, str] = {}
+    raw_meta: dict[str, str] = {}
 
     ffmpeg_exe = get_ffmpeg_path()
     if not ffmpeg_exe or not os.path.exists(file_path):
         return tech_info, raw_meta
 
     startupinfo = None
-    if os.name == 'nt':
+    if os.name == "nt":
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
@@ -96,13 +99,13 @@ def get_media_technical_and_raw_metadata(file_path: str) -> Tuple[Dict[str, str]
         cmd_meta = [ffmpeg_exe, "-hide_banner", "-i", file_path, "-f", "ffmetadata", "-"]
         proc = subprocess.run(
             cmd_meta,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
+            check=False,
             text=True,
-            encoding='utf-8',
-            errors='ignore',
+            encoding="utf-8",
+            errors="ignore",
             startupinfo=startupinfo,
-            timeout=10
+            timeout=10,
         )
 
         # 1. Parse technical streams, duration, and resolution from stderr
@@ -159,7 +162,8 @@ def get_media_technical_and_raw_metadata(file_path: str) -> Tuple[Dict[str, str]
 
     return tech_info, raw_meta
 
-def extract_frame_bytes(file_path: str, timestamp_seconds: float, max_width: int = 1280) -> Optional[bytes]:
+
+def extract_frame_bytes(file_path: str, timestamp_seconds: float, max_width: int = 1280) -> bytes | None:
     """
     Extracts a single video frame at timestamp_seconds as JPEG bytes.
     Optionally scales down if max_width is exceeded to keep frame extraction snappy.
@@ -169,35 +173,37 @@ def extract_frame_bytes(file_path: str, timestamp_seconds: float, max_width: int
         return None
 
     time_str = f"{timestamp_seconds:.3f}"
-    
+
     vf_filter = f"scale='min({max_width},iw)':-2"
     cmd = [
         ffmpeg_exe,
         "-hide_banner",
-        "-loglevel", "error",
-        "-ss", time_str,
-        "-i", file_path,
-        "-vf", vf_filter,
-        "-frames:v", "1",
-        "-f", "image2pipe",
-        "-vcodec", "mjpeg",
-        "-q:v", "3",
-        "pipe:1"
+        "-loglevel",
+        "error",
+        "-ss",
+        time_str,
+        "-i",
+        file_path,
+        "-vf",
+        vf_filter,
+        "-frames:v",
+        "1",
+        "-f",
+        "image2pipe",
+        "-vcodec",
+        "mjpeg",
+        "-q:v",
+        "3",
+        "pipe:1",
     ]
 
     try:
         startupinfo = None
-        if os.name == 'nt':
+        if os.name == "nt":
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
-        proc = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            startupinfo=startupinfo,
-            timeout=15
-        )
+        proc = subprocess.run(cmd, capture_output=True, check=False, startupinfo=startupinfo, timeout=15)
         if proc.returncode == 0 and len(proc.stdout) > 0:
             return proc.stdout
     except Exception as e:

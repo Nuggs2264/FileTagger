@@ -2,11 +2,12 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass
-from typing import Optional, Tuple
+
 import requests
 
 LRCLIB_GET_URL = "https://lrclib.net/api/get"
 USER_AGENT = "FileTagger/1.0 (https://github.com/desktop-tagger/filetagger)"
+
 
 @dataclass
 class LyricsResult:
@@ -18,24 +19,27 @@ class LyricsResult:
     plain_lyrics: str
     is_synced: bool
 
+
 def clean_title_for_search(title: str) -> str:
     """Removes common track title clutter like (feat. X), [Remastered], etc."""
     cleaned = title
     # Remove featuring
     cleaned = re.sub(r"\s*[\(\[](?:feat|featuring|ft)\.?\s+[^\)\]]+[\)\]]", "", cleaned, flags=re.IGNORECASE)
     # Remove Remastered / Deluxe / Official Video / etc.
-    cleaned = re.sub(r"\s*[\(\[](?:remastered|deluxe|bonus|official video|version|edit|mono|stereo)[^\)\]]*[\)\]]", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\s*[\(\[](?:remastered|deluxe|bonus|official video|version|edit|mono|stereo)[^\)\]]*[\)\]]",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
     # Remove trailing track numbers or dashes
     cleaned = re.sub(r"^\d+\s*[-.]?\s*", "", cleaned)
     return cleaned.strip()
 
+
 def fetch_lyrics(
-    track_name: str,
-    artist_name: str = "",
-    album_name: str = "",
-    duration: float = 0.0,
-    timeout: int = 8
-) -> Optional[LyricsResult]:
+    track_name: str, artist_name: str = "", album_name: str = "", duration: float = 0.0, timeout: int = 8
+) -> LyricsResult | None:
     """
     Fetches synchronized / plain lyrics from LRCLIB.
     Attempts query with full parameters first; if not found, cleans up parameters and retries.
@@ -105,7 +109,8 @@ def fetch_lyrics(
 
     return None
 
-def _parse_lrclib_response(data: dict) -> Optional[LyricsResult]:
+
+def _parse_lrclib_response(data: dict) -> LyricsResult | None:
     synced = data.get("syncedLyrics") or ""
     plain = data.get("plainLyrics") or ""
     if not synced and not plain:
@@ -118,8 +123,9 @@ def _parse_lrclib_response(data: dict) -> Optional[LyricsResult]:
         duration=float(data.get("duration") or 0.0),
         synced_lyrics=synced,
         plain_lyrics=plain,
-        is_synced=bool(synced)
+        is_synced=bool(synced),
     )
+
 
 def save_lrc_file(audio_file_path: str, lyrics_content: str) -> str:
     """

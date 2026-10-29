@@ -1,38 +1,58 @@
 import html
 import threading
-from typing import List, Optional, Dict
-from PySide6.QtCore import Qt, QObject, Signal, QSettings
-from PySide6.QtWidgets import (
-    QWidget, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-    QComboBox, QCheckBox, QSplitter, QTextEdit, QFrame,
-    QProgressBar, QMessageBox
-)
+
+from PySide6.QtCore import QObject, QSettings, Qt, Signal
 from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from core.music_online_fetcher import (
-    MusicSearchResult, search_all_music_sources, search_itunes,
-    search_deezer, search_musicbrainz_coverart, search_discogs,
-    download_music_image_bytes, clean_query_text
+    MusicSearchResult,
+    clean_query_text,
+    download_music_image_bytes,
+    search_all_music_sources,
+    search_deezer,
+    search_discogs,
+    search_itunes,
+    search_musicbrainz_coverart,
 )
-from core.tagger import normalize_cover_image
-from core.secure_storage import encrypt_secret, decrypt_secret
+from core.secure_storage import decrypt_secret, encrypt_secret
+
 
 class MusicSearchSignals(QObject):
     results_ready = Signal(int, list)
     error_occurred = Signal(int, str)
 
+
 class MusicImageSignals(QObject):
     image_ready = Signal(int, bytes)
+
 
 class MusicFetcherDialog(QDialog):
     def __init__(self, initial_query: str = "", parent=None):
         super().__init__(parent)
         self.settings = QSettings("FileTagger", "FileTagger")
         self.initial_query = clean_query_text(initial_query)
-        self.search_results: List[MusicSearchResult] = []
-        self.selected_result: Optional[MusicSearchResult] = None
-        self.downloaded_cover_bytes: Optional[bytes] = None
+        self.search_results: list[MusicSearchResult] = []
+        self.selected_result: MusicSearchResult | None = None
+        self.downloaded_cover_bytes: bytes | None = None
         self._search_req_id = 0
         self._img_req_id = 0
 
@@ -59,13 +79,15 @@ class MusicFetcherDialog(QDialog):
         search_row.addWidget(self.txt_query, 1)
 
         self.cmb_engine = QComboBox()
-        self.cmb_engine.addItems([
-            "🎵 All Sources (iTunes, Deezer, MusicBrainz)",
-            "🍎 iTunes / Apple Music (Hi-Res 1400x1400)",
-            "🎧 Deezer (1000x1000 Artwork)",
-            "🧠 MusicBrainz & Cover Art Archive",
-            "💿 Discogs (Vinyl & CD Database)"
-        ])
+        self.cmb_engine.addItems(
+            [
+                "🎵 All Sources (iTunes, Deezer, MusicBrainz)",
+                "🍎 iTunes / Apple Music (Hi-Res 1400x1400)",
+                "🎧 Deezer (1000x1000 Artwork)",
+                "🧠 MusicBrainz & Cover Art Archive",
+                "💿 Discogs (Vinyl & CD Database)",
+            ]
+        )
         saved_engine = self.settings.value("music_search_engine", "🎵 All Sources (iTunes, Deezer, MusicBrainz)")
         idx = self.cmb_engine.findText(saved_engine)
         if idx >= 0:
@@ -87,8 +109,12 @@ class MusicFetcherDialog(QDialog):
         saved_token = decrypt_secret(str(self.settings.value("discogs_token", "")).strip())
         self.txt_discogs_token = QLineEdit(saved_token)
         self.txt_discogs_token.setEchoMode(QLineEdit.EchoMode.PasswordEchoOnEdit)
-        self.txt_discogs_token.setPlaceholderText("Enter Discogs Personal Access Token (from discogs.com/settings/developers)...")
-        self.txt_discogs_token.textChanged.connect(lambda t: self.settings.setValue("discogs_token", encrypt_secret(t.strip())))
+        self.txt_discogs_token.setPlaceholderText(
+            "Enter Discogs Personal Access Token (from discogs.com/settings/developers)..."
+        )
+        self.txt_discogs_token.textChanged.connect(
+            lambda t: self.settings.setValue("discogs_token", encrypt_secret(t.strip()))
+        )
         self.discogs_row.addWidget(self.txt_discogs_token, 1)
         self.discogs_container = QFrame()
         self.discogs_container.setLayout(self.discogs_row)
@@ -164,7 +190,9 @@ class MusicFetcherDialog(QDialog):
         # Metadata Card
         self.txt_details = QTextEdit()
         self.txt_details.setReadOnly(True)
-        self.txt_details.setStyleSheet("background-color: #18181f; border: 1px solid #262632; border-radius: 6px; font-size: 9pt;")
+        self.txt_details.setStyleSheet(
+            "background-color: #18181f; border: 1px solid #262632; border-radius: 6px; font-size: 9pt;"
+        )
         right_layout.addWidget(self.txt_details, 1)
 
         splitter.addWidget(right_widget)
@@ -265,7 +293,7 @@ class MusicFetcherDialog(QDialog):
         t = threading.Thread(target=_worker, daemon=True)
         t.start()
 
-    def _on_results_ready(self, req_id: int, results: List[MusicSearchResult]):
+    def _on_results_ready(self, req_id: int, results: list[MusicSearchResult]):
         if req_id != self._search_req_id:
             return
         self.progress_bar.setVisible(False)
@@ -330,6 +358,7 @@ class MusicFetcherDialog(QDialog):
             self.image_signals = img_signals
 
             cover_url = res.cover_url
+
             def _img_worker():
                 img_data = download_music_image_bytes(cover_url)
                 if img_data:
@@ -356,7 +385,7 @@ class MusicFetcherDialog(QDialog):
                 self.art_preview.width() - 8,
                 self.art_preview.height() - 8,
                 Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
+                Qt.TransformationMode.SmoothTransformation,
             )
             self.art_preview.setPixmap(scaled)
             size_kb = len(data) / 1024.0

@@ -1,6 +1,8 @@
 import os
-from typing import List, Any
+from typing import Any
+
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
+
 from core.media_item import MediaItem
 from ui.rename_dialog import sanitize_filename
 
@@ -29,17 +31,22 @@ EDITABLE_COLUMNS = {
     8: "genre",
 }
 
+
 class FileTableModel(QAbstractTableModel):
     item_edited = Signal(int, str, str)  # (row, key, new_value)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.items: List[MediaItem] = []
+        self.items: list[MediaItem] = []
 
-    def rowCount(self, parent=QModelIndex()) -> int:
+    def rowCount(self, parent: QModelIndex | None = None) -> int:
+        if parent is not None and parent.isValid():
+            return 0
         return len(self.items)
 
-    def columnCount(self, parent=QModelIndex()) -> int:
+    def columnCount(self, parent: QModelIndex | None = None) -> int:
+        if parent is not None and parent.isValid():
+            return 0
         return len(COLUMNS)
 
     def headerData(self, section: int, orientation: Qt.Orientation, role=Qt.ItemDataRole.DisplayRole) -> Any:
@@ -98,9 +105,11 @@ class FileTableModel(QAbstractTableModel):
         elif role == Qt.ItemDataRole.ForegroundRole:
             if col == 0 and item.is_dirty:
                 from PySide6.QtGui import QColor
+
                 return QColor("#f59e0b")  # Amber dot for modified
             if col == 10 and item.cover_bytes:
                 from PySide6.QtGui import QColor
+
                 return QColor("#10b981")  # Green for has cover
 
         elif role == Qt.ItemDataRole.ToolTipRole:
@@ -173,7 +182,7 @@ class FileTableModel(QAbstractTableModel):
         self.item_edited.emit(row, tag_key, str_val)
         return True
 
-    def add_items(self, new_items: List[MediaItem]):
+    def add_items(self, new_items: list[MediaItem]):
         if not new_items:
             return
         start = len(self.items)
@@ -181,7 +190,7 @@ class FileTableModel(QAbstractTableModel):
         self.items.extend(new_items)
         self.endInsertRows()
 
-    def remove_rows(self, rows: List[int]):
+    def remove_rows(self, rows: list[int]):
         for row in sorted(rows, reverse=True):
             if 0 <= row < len(self.items):
                 self.beginRemoveRows(QModelIndex(), row, row)
